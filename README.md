@@ -1,39 +1,52 @@
-# NEON SWARM
+# Vespera: Eclipse Carmesim (`crimson-vesper`)
 
-Um arena survivor 2D em uma arena cyberpunk. A nave dispara automaticamente no inimigo mais próximo. Desvie dos enxames, recolha energia e escolha upgrades conforme a pressão aumenta.
+> *"Sete badaladas anunciaram o fim da alvorada. Sete cálices beberam o sangue do Sol. Agora, na noite que não conhece amanhã, apenas a cinza ainda queima."*
 
-## Jogar
+Action roguelite *bullet heaven* 2D gótico inspirado em **Vampire Survivors**, construído com **Phaser 3 (WebGL)** e **TypeScript (Vite)**.
 
-[Abrir NEON SWARM no GitHub Pages](https://ald3b4r4n.github.io/NeonSwarm/)
+🔗 **Repositório:** [github.com/Ald3b4r4n/crimson-vesper](https://github.com/Ald3b4r4n/crimson-vesper)  
+📖 **Lore & Grimório Completo:** [docs/lore.md](docs/lore.md)
 
-- **Computador** — WASD ou setas para mover. Espaço ativa o pulso. Esc ou P pausa.
-- **Celular** — arraste sobre a arena para mover. Use os botões na tela para pulso, pausa e upgrades.
-- **Evolução** — escolha um upgrade ao subir de nível. O recorde fica no armazenamento local do navegador.
+---
 
-## Desenvolvimento
+## Destaques de Jogabilidade & Animação
 
-Requer Node.js 24.
+- **Engine Phaser 3 WebGL**: Renderização fluida a 60 FPS com câmera suavizada (*look-ahead*), vinheta pós-processada, neblina volumétrica em camadas e transição progressiva de iluminação conforme o Eclipse avança.
+- **Animações e Transições Elegantes**:
+  - **Heróis**: Capas esvoaçantes multi-frame, inclinação dinâmica de corrida, respiração em repouso, poeira nos passos e **Passo Espectral (`Espaço`)** com rastros fantasmas luminosos.
+  - **Inimigos e Hordas**: Surgimento suave emergindo das sombras no solo (sem *pop-in* brusco), separação espacial via `SpatialGrid`, flash branco + *squash & stretch* elástico ao sofrer dano, números de dano flutuantes e **dissolução em brasas e almas** na morte.
+  - **Gemas de Éter & Relicários**: Coleta magnética com curva de recuo clássica e progressão harmônica sonora no Web Audio.
+- **3 Juramentados Jogáveis**:
+  - **Alaric Belmont** (*Açoite Consagrado*)
+  - **Seraphina de Noctis** (*Cetro de Estilhaços*)
+  - **Sor Kaelen** (*Machado do Carrasco*)
+- **6 Armas Sagradas + 6 Relíquias Passivas + 6 Evoluções Ancestrais** desbloqueadas em Relicários Dourados deixados pelos Senhores do Eclipse (*Fenrir da Lua Podre*, *Cardeal Malakor* e *O Ceifador Carmesim*).
 
-```sh
-npm ci
+---
+
+## Controles
+
+- **Mover:** `WASD`, `Setas` ou Joystick Virtual (Toque/Mouse)
+- **Passo Espectral (Dash Invulnerável):** `Espaço` ou botão `PASSO`
+- **Escolher Upgrade Rápido:** `1`, `2`, `3` ou clique nas cartas
+- **Pausar:** `Esc` ou `P`
+
+---
+
+## Como Executar e Validar
+
+Requer **Node.js 24+**:
+
+```bash
+npm install
 npm run dev
 ```
 
-React cuida dos menus, do HUD e da entrada. O Canvas desenha a arena e as entidades. O motor TypeScript é determinístico e isolado do DOM. Os tipos compartilhados ficam em `src/game/contracts.ts`. [Arquitetura](docs/arquitetura.md)
+Validação completa (TypeScript, ESLint, Testes Unitários e Build de Produção):
 
-## Validação
-
-```sh
-npm run build
+```bash
 npm run typecheck
 npm run lint
 npm test
-npx playwright install chromium
-npm run test:e2e
+npm run build
 ```
-
-Os testes E2E servem o build de produção. O jogo funciona no navegador, com gráficos procedurais e persistência local.
-
-## Créditos
-
-Projeto desenvolvido como desafio operacional do Hivemind. Codex CLI coordenou pelo MCP. Claude Code definiu os contratos, OpenCode Go trabalhou no motor e Codex CLI trabalhou na interface como fallback do Muse Code. Os resultados de cada executor e a situação da publicação estão no [relatório P004](docs/p004.md).

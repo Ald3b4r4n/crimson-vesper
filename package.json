@@ -1,8 +1,13 @@
 {
-  "name": "neon-swarm",
+  "name": "crimson-vesper",
   "version": "1.0.0",
+  "description": "Vespera: Eclipse Carmesim — Action roguelite survivors 2D gótico em Phaser 3 (WebGL) e TypeScript",
   "private": true,
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Ald3b4r4n/crimson-vesper.git"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -13,18 +18,15 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "phaser": "^3.88.2"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.0",
-    "@types/react": "^19.2.0",
-    "@types/react-dom": "^19.2.0",
     "@types/node": "^24.0.0",
-    "vite": "^7.0.0",
-    "typescript": "~5.9.0",
-    "vitest": "^4.0.0",
     "eslint": "^9.0.0",
-    "typescript-eslint": "^8.0.0"
+    "typescript": "~5.9.0",
+    "typescript-eslint": "^8.0.0",
+    "vite": "^7.0.0",
+    "vitest": "^4.0.0"
   }
 }
