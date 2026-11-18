@@ -1,5 +1,9 @@
 import Phaser from 'phaser';
-import { forgeAllTexturesAndAnims, forgeStageTextures } from '../art/SpriteForge';
+import {
+  forgeAllTexturesAndAnims,
+  forgeStageTextures,
+  preloadAllSpriteAssets,
+} from '../art/SpriteForge';
 import { gothicAudio } from '../audio/GothicAudio';
 import {
   ENEMIES,
@@ -261,6 +265,10 @@ export class ArenaScene extends Phaser.Scene {
     this.callbacks?.onPauseChanged(this.userPaused);
   }
 
+  preload(): void {
+    preloadAllSpriteAssets(this);
+  }
+
   create(): void {
     forgeAllTexturesAndAnims(this);
     const envKeys = forgeStageTextures(this, this.stageDef);
@@ -330,7 +338,7 @@ export class ArenaScene extends Phaser.Scene {
       .setBlendMode(Phaser.BlendModes.ADD);
 
     // 3. Upgraded Hero Shadow & Animated Sprite
-    this.heroShadow = this.add.image(0, 26, 'vfx_shadow').setDepth(4).setScale(1.12, 0.95);
+    this.heroShadow = this.add.image(0, 38, 'vfx_shadow').setDepth(4).setScale(1.22, 0.95);
     this.heroSprite = this.add
       .sprite(0, 0, `hero_${this.heroId}`, 0)
       .setDepth(10)
@@ -339,8 +347,8 @@ export class ArenaScene extends Phaser.Scene {
 
     this.tweens.add({
       targets: this.heroSprite,
-      scaleX: 1.08,
-      scaleY: 1.08,
+      scaleX: 0.82,
+      scaleY: 0.82,
       duration: 500,
       ease: 'Back.easeOut',
     });
@@ -380,12 +388,12 @@ export class ArenaScene extends Phaser.Scene {
 
     const cam = this.cameras.main;
     cam.centerOn(0, 0);
-    if (cam.postFX) {
-      cam.postFX.clear();
-      cam.postFX.addVignette(0.5, 0.5, 0.88, 0.34);
-    }
 
-    // 5. Keyboard Bindings
+    // 5. Keyboard Bindings & Clean Shutdown Lifecycle
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.scale.off('resize', this.handleResize, this);
+      this.input.keyboard?.removeAllListeners();
+    });
     if (this.input.keyboard) {
       this.input.keyboard.removeAllListeners();
       this.cursors = this.input.keyboard.createCursorKeys();
@@ -418,12 +426,13 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private handleResize(gameSize: Phaser.Structs.Size): void {
+    if (!this.scene.isActive()) return;
     const w = gameSize.width;
     const h = gameSize.height;
-    if (this.groundBg) {
+    if (this.groundBg && this.groundBg.scene) {
       this.groundBg.setPosition(w / 2, h / 2).setSize(w + 512, h + 512);
     }
-    if (this.ambientOverlay) {
+    if (this.ambientOverlay && this.ambientOverlay.scene) {
       this.ambientOverlay.setPosition(w / 2, h / 2).setSize(w + 64, h + 64);
     }
   }
@@ -564,25 +573,25 @@ export class ArenaScene extends Phaser.Scene {
     const speedRatio = Math.min(1, Math.hypot(this.heroVx, this.heroVy) / this.stats.moveSpeed);
     this.heroSprite.setPosition(this.heroX, this.heroY);
     this.heroSprite.setFlipX(this.facing < 0);
-    this.heroShadow.setPosition(this.heroX, this.heroY + 26);
+    this.heroShadow.setPosition(this.heroX, this.heroY + 38);
 
-    const targetTilt = (this.heroVx / this.stats.moveSpeed) * 0.085;
+    const targetTilt = (this.heroVx / this.stats.moveSpeed) * 0.065;
     this.heroSprite.rotation = Phaser.Math.Linear(this.heroSprite.rotation, targetTilt, 10 * dt);
 
     if (speedRatio > 0.15) {
-      this.heroSprite.anims.timeScale = 0.8 + speedRatio * 0.65;
-      const stridePulse = Math.sin(time * 0.016) * 0.045 * speedRatio;
-      this.heroSprite.setScale(1.08 - stridePulse, 1.08 + stridePulse);
+      this.heroSprite.anims.timeScale = 0.85 + speedRatio * 0.65;
+      const stridePulse = Math.sin(time * 0.016) * 0.036 * speedRatio;
+      this.heroSprite.setScale(0.82 - stridePulse, 0.82 + stridePulse);
 
       this.dustStepTimer -= dt;
       if (this.dustStepTimer <= 0) {
         this.dustStepTimer = 0.18;
-        this.spawnFootstepDust(this.heroX, this.heroY + 24);
+        this.spawnFootstepDust(this.heroX, this.heroY + 36);
       }
     } else {
-      this.heroSprite.anims.timeScale = 0.32;
-      const breath = Math.sin(time * 0.004) * 0.025;
-      this.heroSprite.setScale(1.08 + breath * 0.5, 1.08 - breath);
+      this.heroSprite.anims.timeScale = 0.35;
+      const breath = Math.sin(time * 0.004) * 0.02;
+      this.heroSprite.setScale(0.82 + breath * 0.5, 0.82 - breath);
     }
 
     if (this.invulnTimer > 0 && this.dashActiveTimer <= 0) {
@@ -778,15 +787,15 @@ export class ArenaScene extends Phaser.Scene {
     );
 
     const shadow = this.add
-      .image(x, y + 20 * def.scale, 'vfx_shadow')
+      .image(x, y + (def.isBoss ? 52 : 30) * def.scale, 'vfx_shadow')
       .setDepth(3)
-      .setScale(def.scale * 0.9, def.scale * 0.72)
+      .setScale(def.scale * 0.95, def.scale * 0.72)
       .setAlpha(0);
 
     const sprite = this.add
-      .sprite(x, y, `enemy_${kind}`, Phaser.Math.Between(0, 5))
+      .sprite(x, y, `enemy_${kind}`, Phaser.Math.Between(0, 3))
       .setDepth(def.isBoss ? 14 : 7)
-      .setScale(def.scale * 0.35, def.scale * 0.12)
+      .setScale(def.scale * 0.25, def.scale * 0.1)
       .setAlpha(0)
       .setTint(0x2a1428);
     sprite.play(`enemy_${kind}_move`);
@@ -1582,16 +1591,17 @@ export class ArenaScene extends Phaser.Scene {
       e.y += e.vy * dt;
 
       const emergeEase = 1 - Math.pow(1 - e.spawnProgress, 3);
-      let sx = e.def.scale * (0.45 + 0.55 * emergeEase);
-      let sy = e.def.scale * (0.15 + 0.85 * emergeEase);
+      const visualBase = e.def.isBoss ? e.def.scale * 0.82 : e.def.scale * 0.74;
+      let sx = visualBase * (0.45 + 0.55 * emergeEase);
+      let sy = visualBase * (0.15 + 0.85 * emergeEase);
 
       if (e.squashTimer > 0) {
         e.squashTimer = Math.max(0, e.squashTimer - dt);
         const sq = e.squashTimer / 0.14;
-        sx *= 1 + 0.24 * sq;
-        sy *= 1 - 0.19 * sq;
+        sx *= 1 + 0.2 * sq;
+        sy *= 1 - 0.16 * sq;
       } else {
-        const stride = Math.sin(time * 0.01 + e.animSeed) * 0.04;
+        const stride = Math.sin(time * 0.01 + e.animSeed) * 0.032;
         sx *= 1 + stride;
         sy *= 1 - stride;
       }
@@ -1610,9 +1620,11 @@ export class ArenaScene extends Phaser.Scene {
         .setScale(sx, sy)
         .setAlpha(emergeEase)
         .setFlipX(dxHero < 0)
-        .setRotation((dxHero >= 0 ? 1 : -1) * 0.04 * Math.sin(time * 0.008 + e.animSeed));
+        .setRotation((dxHero >= 0 ? 1 : -1) * 0.035 * Math.sin(time * 0.008 + e.animSeed));
 
-      e.shadow.setPosition(e.x, e.y + 20 * e.def.scale).setAlpha(0.55 * emergeEase);
+      e.shadow
+        .setPosition(e.x, e.y + (e.def.isBoss ? 52 : 30) * e.def.scale)
+        .setAlpha(0.58 * emergeEase);
 
       if (e.spawnProgress >= 0.85 && this.invulnTimer <= 0) {
         const hitDist = e.radius + 14;
@@ -1913,10 +1925,10 @@ export class ArenaScene extends Phaser.Scene {
 
   private drawHeroHpBar(): void {
     this.trailingHp = Phaser.Math.Linear(this.trailingHp, this.hp, 0.14);
-    const barW = 48;
+    const barW = 54;
     const barH = 5;
     const bx = this.heroX - barW / 2;
-    const by = this.heroY + 34;
+    const by = this.heroY + 46;
 
     this.hpBarGraphics.clear();
     this.hpBarGraphics.fillStyle(0x0d090e, 0.88);

@@ -797,7 +797,7 @@ export class UIManager {
         <p class="modal-subtitle">A Névoa Rubra aguarda no escuro.</p>
         <div style="display:flex; flex-direction:column; gap:12px">
           <button type="button" class="btn-gothic" data-resume-btn>Retomar Vigília</button>
-          <button type="button" class="btn-gothic secondary" data-quit-btn>Menu & 7 Fases</button>
+          <button type="button" class="btn-gothic secondary" data-quit-btn>Sair e retornar ao menu</button>
         </div>
       </div>
     `;
