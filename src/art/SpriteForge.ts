@@ -52,14 +52,38 @@ const BOSS_ENEMIES: EnemyKind[] = [
   'boss_reaper',
 ];
 
-const PROP_ASSETS = [
+const STATIC_ENV_ASSETS = [
+  // Monumental Props & Ruins
   'prop_dead_tree',
   'prop_gothic_pillar',
   'prop_iron_brazier',
   'prop_dungeon_cage',
   'prop_obsidian_spire',
   'prop_bone_arch',
+  'ruin_crumbled_wall',
+  'ruin_broken_arch',
+  'ruin_weathered_statue',
+  // Vegetation
+  'veg_bramble_bush',
+  'veg_twisted_shrub',
+  'veg_charred_thicket',
+  // Breakable Destructibles
+  'break_wooden_barrel',
+  'break_clay_urn',
+  'break_candelabra',
+  'break_crystal_cluster',
+  // Pickups
+  'pickup_blood_chalice',
+  'pickup_astral_magnet',
 ] as const;
+
+export interface StageEnvCatalog {
+  groundKey: string;
+  roadKey: string;
+  ruinKeys: string[];
+  vegKeys: string[];
+  breakableKeys: string[];
+}
 
 export function preloadAllSpriteAssets(scene: Phaser.Scene): void {
   const heroIds: HeroId[] = ['alaric', 'seraphina', 'kaelen', 'valeria'];
@@ -93,34 +117,99 @@ export function preloadAllSpriteAssets(scene: Phaser.Scene): void {
     }
   }
 
-  for (const propKey of PROP_ASSETS) {
-    if (!scene.textures.exists(propKey)) {
-      scene.load.image(propKey, `./art/sprites/${propKey}.webp`);
+  for (const assetKey of STATIC_ENV_ASSETS) {
+    if (!scene.textures.exists(assetKey)) {
+      scene.load.image(assetKey, `./art/sprites/${assetKey}.webp`);
     }
   }
 }
 
-export function forgeStageTextures(scene: Phaser.Scene, stage: StageDefinition): {
-  groundKey: string;
-  roadKey: string;
-  propKeys: [string, string, string];
-} {
+export function forgeStageTextures(scene: Phaser.Scene, stage: StageDefinition): StageEnvCatalog {
   const groundKey = `ground_${stage.id}`;
   const roadKey = `road_${stage.id}`;
 
-  // Map authentic AI-generated dark-fantasy props to each of the 7 stages!
-  const propMap: Record<StageDefinition['propStyle'], [string, string, string]> = {
-    forest: ['prop_dead_tree', 'prop_gothic_pillar', 'prop_iron_brazier'],
-    castle: ['prop_gothic_pillar', 'prop_dungeon_cage', 'prop_iron_brazier'],
-    dungeon: ['prop_dungeon_cage', 'prop_gothic_pillar', 'prop_iron_brazier'],
-    volcano: ['prop_obsidian_spire', 'prop_dead_tree', 'prop_iron_brazier'],
-    metropolis: ['prop_gothic_pillar', 'prop_dead_tree', 'prop_iron_brazier'],
-    temple: ['prop_gothic_pillar', 'prop_bone_arch', 'prop_iron_brazier'],
-    inferno: ['prop_bone_arch', 'prop_obsidian_spire', 'prop_iron_brazier'],
+  const stageCatalogs: Record<
+    StageDefinition['propStyle'],
+    { ruinKeys: string[]; vegKeys: string[]; breakableKeys: string[] }
+  > = {
+    forest: {
+      ruinKeys: [
+        'ruin_broken_arch',
+        'ruin_weathered_statue',
+        'ruin_crumbled_wall',
+        'prop_dead_tree',
+        'prop_iron_brazier',
+      ],
+      vegKeys: ['veg_bramble_bush', 'veg_twisted_shrub', 'veg_bramble_bush'],
+      breakableKeys: ['break_candelabra', 'break_wooden_barrel', 'break_clay_urn'],
+    },
+    castle: {
+      ruinKeys: [
+        'ruin_broken_arch',
+        'prop_gothic_pillar',
+        'ruin_weathered_statue',
+        'ruin_crumbled_wall',
+        'prop_iron_brazier',
+      ],
+      vegKeys: ['veg_bramble_bush', 'veg_twisted_shrub'],
+      breakableKeys: ['break_candelabra', 'break_clay_urn', 'break_wooden_barrel'],
+    },
+    dungeon: {
+      ruinKeys: [
+        'prop_dungeon_cage',
+        'ruin_crumbled_wall',
+        'prop_gothic_pillar',
+        'prop_iron_brazier',
+      ],
+      vegKeys: ['veg_twisted_shrub', 'veg_charred_thicket'],
+      breakableKeys: ['break_wooden_barrel', 'break_clay_urn', 'break_crystal_cluster'],
+    },
+    volcano: {
+      ruinKeys: [
+        'prop_obsidian_spire',
+        'ruin_crumbled_wall',
+        'prop_bone_arch',
+        'prop_iron_brazier',
+      ],
+      vegKeys: ['veg_charred_thicket', 'prop_dead_tree'],
+      breakableKeys: ['break_crystal_cluster', 'break_clay_urn', 'break_candelabra'],
+    },
+    metropolis: {
+      ruinKeys: [
+        'ruin_crumbled_wall',
+        'ruin_broken_arch',
+        'ruin_weathered_statue',
+        'prop_gothic_pillar',
+        'prop_iron_brazier',
+      ],
+      vegKeys: ['veg_charred_thicket', 'veg_bramble_bush'],
+      breakableKeys: ['break_wooden_barrel', 'break_candelabra', 'break_clay_urn'],
+    },
+    temple: {
+      ruinKeys: [
+        'prop_gothic_pillar',
+        'ruin_weathered_statue',
+        'ruin_broken_arch',
+        'prop_iron_brazier',
+      ],
+      vegKeys: ['veg_bramble_bush', 'veg_twisted_shrub'],
+      breakableKeys: ['break_candelabra', 'break_clay_urn', 'break_crystal_cluster'],
+    },
+    inferno: {
+      ruinKeys: [
+        'prop_bone_arch',
+        'prop_obsidian_spire',
+        'ruin_weathered_statue',
+        'prop_iron_brazier',
+      ],
+      vegKeys: ['veg_charred_thicket'],
+      breakableKeys: ['break_crystal_cluster', 'break_candelabra', 'break_clay_urn'],
+    },
   };
-  const propKeys = propMap[stage.propStyle];
 
-  // Seamless 512x512 Subtle Painterly Ground Tile (toroidally wrapped so ZERO grid seams!)
+  const chosen = stageCatalogs[stage.propStyle];
+
+  // Seamless 512x512 Painterly Ground Tile
   registerSingle(scene, groundKey, 512, 512, (ctx, w, h) => {
     ctx.fillStyle = stage.palette.groundBase;
     ctx.fillRect(0, 0, w, h);
@@ -151,7 +240,6 @@ export function forgeStageTextures(scene: Phaser.Scene, stage: StageDefinition):
       ctx.restore();
     };
 
-    // Soft organic mossy / stone / volcanic shading clouds (seamlessly tiled!)
     for (let i = 0; i < 110; i++) {
       const col = i % 2 === 0 ? stage.palette.groundAccent : stage.palette.groundDetail;
       drawSeamlessBlob(rand() * w, rand() * h, 28 + rand() * 58, col, 0.28);
@@ -163,7 +251,6 @@ export function forgeStageTextures(scene: Phaser.Scene, stage: StageDefinition):
       stage.propStyle === 'temple' ||
       stage.propStyle === 'metropolis'
     ) {
-      // Subtle worn stone masonry mortar lines (low-contrast so characters pop!)
       ctx.strokeStyle = 'rgba(0, 0, 0, 0.26)';
       ctx.lineWidth = 1.5;
       const rowH = 64;
@@ -183,7 +270,6 @@ export function forgeStageTextures(scene: Phaser.Scene, stage: StageDefinition):
         }
       }
     } else if (stage.propStyle === 'volcano' || stage.propStyle === 'inferno') {
-      // Subtle glowing magma fissures in deep dark rock
       ctx.strokeStyle =
         stage.propStyle === 'volcano' ? 'rgba(255, 90, 20, 0.22)' : 'rgba(220, 25, 65, 0.22)';
       ctx.lineWidth = 2;
@@ -198,7 +284,6 @@ export function forgeStageTextures(scene: Phaser.Scene, stage: StageDefinition):
     }
   });
 
-  // Stage Road / Carpet / Magma Path (180x256)
   registerSingle(scene, roadKey, 180, 256, (ctx, w, h) => {
     const grad = ctx.createLinearGradient(0, 0, w, 0);
     grad.addColorStop(0, 'rgba(0,0,0,0)');
@@ -224,43 +309,72 @@ export function forgeStageTextures(scene: Phaser.Scene, stage: StageDefinition):
     }
   });
 
-  return { groundKey, roadKey, propKeys };
+  return {
+    groundKey,
+    roadKey,
+    ruinKeys: chosen.ruinKeys,
+    vegKeys: chosen.vegKeys,
+    breakableKeys: chosen.breakableKeys,
+  };
 }
 
 export function forgeAllTexturesAndAnims(scene: Phaser.Scene): void {
-  // Register 4-frame Phaser animations for all loaded WebP character & monster spritesheets
+  // 8-frame Articulated Walk + Idle + 4-frame Attack Swing for all 4 Heroes!
   const heroIds: HeroId[] = ['alaric', 'seraphina', 'kaelen', 'valeria'];
   for (const hId of heroIds) {
     const key = `hero_${hId}`;
-    if (scene.textures.exists(key) && !scene.anims.exists(`${key}_walk`)) {
+    if (!scene.textures.exists(key)) continue;
+
+    if (!scene.anims.exists(`${key}_idle`)) {
+      scene.anims.create({
+        key: `${key}_idle`,
+        frames: [
+          { key, frame: 0 },
+          { key, frame: 4 },
+        ],
+        frameRate: 2.2,
+        repeat: -1,
+      });
+    }
+    if (!scene.anims.exists(`${key}_walk`)) {
       scene.anims.create({
         key: `${key}_walk`,
-        frames: scene.anims.generateFrameNumbers(key, { start: 0, end: 3 }),
-        frameRate: 8,
+        frames: scene.anims.generateFrameNumbers(key, { start: 0, end: 7 }),
+        frameRate: 12,
         repeat: -1,
+      });
+    }
+    if (!scene.anims.exists(`${key}_attack`)) {
+      scene.anims.create({
+        key: `${key}_attack`,
+        frames: scene.anims.generateFrameNumbers(key, { start: 8, end: 11 }),
+        frameRate: 16,
+        repeat: 0,
       });
     }
   }
 
+  // 8-frame Articulated Walk / Wing-Flap for all 13 Enemies!
   for (const kind of REGULAR_ENEMIES) {
     const key = `enemy_${kind}`;
     if (scene.textures.exists(key) && !scene.anims.exists(`${key}_move`)) {
       scene.anims.create({
         key: `${key}_move`,
-        frames: scene.anims.generateFrameNumbers(key, { start: 0, end: 3 }),
-        frameRate: kind === 'bat' || kind === 'mist_steed' || kind === 'magma_imp' ? 10 : 7,
+        frames: scene.anims.generateFrameNumbers(key, { start: 0, end: 7 }),
+        frameRate: kind === 'bat' || kind === 'mist_steed' || kind === 'magma_imp' ? 14 : 10,
         repeat: -1,
       });
     }
   }
 
+  // 8-frame Articulated Walk / Wing-Flap for all 7 Bosses!
   for (const kind of BOSS_ENEMIES) {
     const key = `enemy_${kind}`;
     if (scene.textures.exists(key) && !scene.anims.exists(`${key}_move`)) {
       scene.anims.create({
         key: `${key}_move`,
-        frames: scene.anims.generateFrameNumbers(key, { start: 0, end: 3 }),
-        frameRate: 7,
+        frames: scene.anims.generateFrameNumbers(key, { start: 0, end: 7 }),
+        frameRate: 10,
         repeat: -1,
       });
     }
@@ -273,6 +387,21 @@ export function forgeAllTexturesAndAnims(scene: Phaser.Scene): void {
     g.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, w, h);
+  });
+
+  // Splinter / Debris shard for breakables!
+  registerSingle(scene, 'vfx_shard', 14, 10, (ctx, w, h) => {
+    ctx.fillStyle = '#d9b99b';
+    ctx.strokeStyle = '#2b1d14';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(1, h * 0.6);
+    ctx.lineTo(w * 0.45, 1);
+    ctx.lineTo(w - 1, h * 0.45);
+    ctx.lineTo(w * 0.6, h - 1);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
   });
 
   // Weapons & VFX Textures
@@ -466,6 +595,7 @@ export function forgeAllTexturesAndAnims(scene: Phaser.Scene): void {
       ctx.stroke();
       ctx.fillStyle = gem.inner;
       ctx.beginPath();
+      w = w + 0;
       ctx.moveTo(w / 2, 5);
       ctx.lineTo(w - 7, h * 0.42);
       ctx.lineTo(w / 2, h * 0.65);

@@ -17,9 +17,14 @@ test('verifies real sprite rendering in Phaser arena, pause menu text, 7 stages,
   await expect(page.getByTestId('arena-hud')).toBeVisible({ timeout: 5000 });
   await expect(page.locator('#phaser-container canvas')).toBeVisible();
 
-  // Let sprites preload and enemies emerge into the arena
-  await page.waitForTimeout(1200);
+  // Let sprites preload, walk hero diagonally to showcase articulated stride, vegetation, ruins & breakables!
+  await page.waitForTimeout(600);
+  await page.keyboard.down('KeyD');
+  await page.keyboard.down('KeyW');
+  await page.waitForTimeout(750);
   await page.screenshot({ path: 'test-results/preview-gameplay-forest.png' });
+  await page.keyboard.up('KeyD');
+  await page.keyboard.up('KeyW');
 
   // Open Pause Menu and verify updated button text "Sair e retornar ao menu"
   await page.getByTestId('pause-btn').click();
