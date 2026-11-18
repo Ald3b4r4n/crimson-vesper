@@ -6,6 +6,7 @@ import {
   StageEnvCatalog,
 } from '../art/SpriteForge';
 import { gothicAudio } from '../audio/GothicAudio';
+import { gothicSoundtrack } from '../audio/GothicSoundtrack';
 import {
   ENEMIES,
   EnemyDefinition,
@@ -42,6 +43,8 @@ export interface HudSnapshot {
   dashReadyRatio: number;
   stageName: string;
   stageRoman: string;
+  actNumber: 1 | 2 | 3 | 4;
+  actName: string;
   inventory: InventoryState;
   boss?: {
     name: string;
@@ -257,6 +260,7 @@ export class ArenaScene extends Phaser.Scene {
   private spawnedMilestones = new Set<string>();
   private weaponTimers: Record<string, number> = {};
   private hudSyncTimer = 0;
+  private pendingLevelUps = 0;
 
   // Controls & Flags
   private modalPaused = false;
@@ -353,9 +357,12 @@ export class ArenaScene extends Phaser.Scene {
     this.dashCooldownTimer = 0;
     this.dashActiveTimer = 0;
     this.heroAttackAnimTimer = 0;
+    this.pendingLevelUps = 0;
     this.modalPaused = false;
     this.userPaused = false;
     this.runEnded = false;
+
+    gothicSoundtrack.playStageMusic(this.stageDef.id);
 
     this.weaponTimers = {
       whip: 0.25,
@@ -1169,49 +1176,136 @@ export class ArenaScene extends Phaser.Scene {
     }
   }
 
+  private getActEscalation(): {
+    act: 1 | 2 | 3 | 4;
+    actName: string;
+    hpMult: number;
+    dmgMult: number;
+    spdMult: number;
+    xpMult: number;
+    maxHorde: number;
+  } {
+    const mins = this.elapsedSeconds / 60;
+    if (mins < 10) {
+      return {
+        act: 1,
+        actName: 'Ato I · Primeiro Véu',
+        hpMult: 1.0,
+        dmgMult: 1.0,
+        spdMult: 1.0,
+        xpMult: 1.15,
+        maxHorde: 130,
+      };
+    }
+    if (mins < 20) {
+      return {
+        act: 2,
+        actName: 'Ato II · Sangue Crescente',
+        hpMult: 1.9,
+        dmgMult: 1.32,
+        spdMult: 1.12,
+        xpMult: 1.65,
+        maxHorde: 210,
+      };
+    }
+    if (mins < 30) {
+      return {
+        act: 3,
+        actName: 'Ato III · Noite Profunda',
+        hpMult: 3.3,
+        dmgMult: 1.68,
+        spdMult: 1.24,
+        xpMult: 2.35,
+        maxHorde: 295,
+      };
+    }
+    return {
+      act: 4,
+      actName: 'Ato IV · Apocalipse Carmesim',
+      hpMult: 5.4,
+      dmgMult: 2.1,
+      spdMult: 1.35,
+      xpMult: 3.25,
+      maxHorde: 380,
+    };
+  }
+
   private updateWaveDirector(dt: number): void {
     const t = this.elapsedSeconds;
-    const dur = this.stageDef.durationSeconds;
-    const progress = Math.min(1, t / dur);
-    const maxActiveEnemies = Math.min(320, Math.round(45 + progress * 195));
+    const esc = this.getActEscalation();
+    const minuteWithinAct = (t % 600) / 600;
+    const maxActiveEnemies = Math.min(
+      esc.maxHorde,
+      Math.round(46 + (esc.act - 1) * 65 + minuteWithinAct * 65)
+    );
 
-    if (progress >= 0.38 && !this.spawnedMilestones.has('mid_boss')) {
-      this.spawnedMilestones.add('mid_boss');
-      const midDef = ENEMIES[this.stageDef.midBoss];
-      this.spawnBoss(
-        this.stageDef.midBoss,
-        midDef.name,
-        'Um Campeão das Trevas bloqueia sua passagem — abata-o pelo Relicário!',
-        false
-      );
+    // 10-Minute Major Act Escalation Announcements + Act Bosses (10:00, 20:00, 30:00)!
+    const actAnnouncements: Array<{ sec: number; key: string; title: string; sub: string }> = [
+      {
+        sec: 600,
+        key: 'act_2',
+        title: 'ATO II · SANGUE CRESCENTE (10:00)',
+        sub: 'A escuridão engrossa! Inimigos mais ferozes e um Campeão trazem novo Relicário!',
+      },
+      {
+        sec: 1200,
+        key: 'act_3',
+        title: 'ATO III · NOITE PROFUNDA (20:00)',
+        sub: 'Legiões anciãs despertam! Evolua seu arsenal nos Relicários Dourados!',
+      },
+      {
+        sec: 1800,
+        key: 'act_4',
+        title: 'ATO IV · APOCALIPSE CARMESIM (30:00)',
+        sub: 'Últimos 10 minutos antes do Guardião Supremo! Sobreviva à maré abissal!',
+      },
+    ];
+
+    for (const m of actAnnouncements) {
+      if (t >= m.sec && !this.spawnedMilestones.has(m.key)) {
+        this.spawnedMilestones.add(m.key);
+        this.spawnBoss(this.stageDef.midBoss, m.title, m.sub, false);
+        const surgeKind = this.stageDef.enemyPool[Math.min(3, esc.act - 1)];
+        this.spawnCircleWave(surgeKind, 18 + esc.act * 5);
+      }
     }
 
-    if (progress >= 0.68 && !this.spawnedMilestones.has('surge')) {
-      this.spawnedMilestones.add('surge');
-      const surgeKind = this.stageDef.enemyPool[2] ?? this.stageDef.enemyPool[0];
-      this.callbacks?.onBannerAnnouncement(
-        'Cerco Implacável',
-        `Enxames de ${ENEMIES[surgeKind].name} fecham o círculo!`
-      );
-      this.spawnCircleWave(surgeKind, 22);
+    // Regular Champion Bosses (~every 3.5 mins) so player gets 11 Golden Chests to evolve ALL 6 weapon slots!
+    const championTimes = [180, 390, 810, 1020, 1410, 1620, 2040, 2250];
+    for (const cSec of championTimes) {
+      const cKey = `champ_${cSec}`;
+      if (t >= cSec && !this.spawnedMilestones.has(cKey)) {
+        this.spawnedMilestones.add(cKey);
+        const midDef = ENEMIES[this.stageDef.midBoss];
+        this.spawnBoss(
+          this.stageDef.midBoss,
+          `Campeão: ${midDef.name}`,
+          'Derrote-o para obter um Relicário Dourado e evoluir suas armas!',
+          false
+        );
+      }
     }
 
     if (this.enemies.length >= maxActiveEnemies) return;
 
-    const spawnsPerSecond = (2.7 + progress * 6.5) * (0.9 + this.stageDef.difficultyMult * 0.1);
+    const spawnsPerSecond =
+      (2.8 + (esc.act - 1) * 2.1 + minuteWithinAct * 2.0) *
+      (0.9 + this.stageDef.difficultyMult * 0.1);
     this.spawnAccumulator += spawnsPerSecond * dt;
 
     while (this.spawnAccumulator >= 1 && this.enemies.length < maxActiveEnemies) {
       this.spawnAccumulator -= 1;
       const pool = this.stageDef.enemyPool;
-      let idx = 0;
       const r = Math.random();
-      if (progress < 0.25) {
-        idx = r < 0.7 ? 0 : 1;
-      } else if (progress < 0.55) {
-        idx = r < 0.35 ? 0 : r < 0.75 ? 1 : 2;
+      let idx = 0;
+      if (esc.act === 1) {
+        idx = minuteWithinAct < 0.45 ? (r < 0.72 ? 0 : 1) : r < 0.45 ? 0 : r < 0.82 ? 1 : 2;
+      } else if (esc.act === 2) {
+        idx = r < 0.25 ? 0 : r < 0.6 ? 1 : r < 0.88 ? 2 : 3;
+      } else if (esc.act === 3) {
+        idx = r < 0.15 ? 0 : r < 0.42 ? 1 : r < 0.75 ? 2 : 3;
       } else {
-        idx = r < 0.2 ? 0 : r < 0.5 ? 1 : r < 0.8 ? 2 : 3;
+        idx = r < 0.2 ? 1 : r < 0.55 ? 2 : 3;
       }
       const kind = pool[Math.min(pool.length - 1, idx)];
       this.spawnEnemyAroundHero(kind);
@@ -1270,9 +1364,13 @@ export class ArenaScene extends Phaser.Scene {
     isFinalStageBoss: boolean
   ): void {
     const def = ENEMIES[kind];
-    const timeMult = 1 + this.elapsedSeconds * 0.0035;
+    const esc = this.getActEscalation();
+    const withinActRamp = 1 + ((this.elapsedSeconds % 600) / 600) * 0.32;
+    const bossActMult = isFinalStageBoss ? 2.4 : 0.75 + (esc.act - 1) * 0.55;
     const scaledHp = Math.round(
-      def.hp * this.stageDef.difficultyMult * (def.isBoss ? 1 : timeMult)
+      def.hp *
+        this.stageDef.difficultyMult *
+        (def.isBoss ? bossActMult : esc.hpMult * withinActRamp)
     );
 
     const shadow = this.add
@@ -2005,6 +2103,7 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private updateEnemies(time: number, dt: number): void {
+    const esc = this.getActEscalation();
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const e = this.enemies[i];
       if (!e.active) {
@@ -2027,7 +2126,7 @@ export class ArenaScene extends Phaser.Scene {
         e.spawnProgress = Math.min(1, e.spawnProgress + dt * 2.9);
       }
 
-      let moveSpeed = e.def.speed;
+      let moveSpeed = e.def.speed * (e.def.isBoss ? 1 : esc.spdMult);
       let dirX = dxHero / distHero;
       let dirY = dyHero / distHero;
 
@@ -2119,7 +2218,11 @@ export class ArenaScene extends Phaser.Scene {
       if (e.spawnProgress >= 0.85 && this.invulnTimer <= 0) {
         const hitDist = e.radius + 14;
         if (dxHero * dxHero + dyHero * dyHero <= hitDist * hitDist) {
-          this.damageHero(Math.round(e.def.damage * (0.85 + this.stageDef.difficultyMult * 0.15)));
+          this.damageHero(
+            Math.round(
+              e.def.damage * esc.dmgMult * (0.85 + this.stageDef.difficultyMult * 0.15)
+            )
+          );
         }
       }
     }
@@ -2160,7 +2263,9 @@ export class ArenaScene extends Phaser.Scene {
     this.kills += 1;
     this.inventory.souls += enemy.def.isBoss ? 60 : 1;
 
-    this.spawnXpGem(enemy.x, enemy.y, enemy.def.xpValue, enemy.def.gemTier);
+    const esc = this.getActEscalation();
+    const xpReward = Math.max(1, Math.round(enemy.def.xpValue * esc.xpMult));
+    this.spawnXpGem(enemy.x, enemy.y, xpReward, enemy.def.gemTier);
     if (enemy.def.isBoss) {
       this.cameras.main.shake(420, 0.009);
       this.spawnRingBurst(enemy.x, enemy.y, 0xffd166, 28);
@@ -2309,15 +2414,21 @@ export class ArenaScene extends Phaser.Scene {
     gothicAudio.playGem();
     this.inventory.xp += amount;
 
-    if (this.inventory.xp >= this.inventory.xpToNext) {
+    while (this.inventory.xp >= this.inventory.xpToNext) {
       this.inventory.xp -= this.inventory.xpToNext;
       this.inventory.level += 1;
       this.inventory.xpToNext = xpRequiredForLevel(this.inventory.level);
+      this.pendingLevelUps += 1;
+    }
+
+    if (!this.modalPaused && this.pendingLevelUps > 0) {
       this.triggerLevelUpCeremony();
     }
   }
 
   private triggerLevelUpCeremony(): void {
+    if (this.pendingLevelUps <= 0 || this.runEnded) return;
+    this.pendingLevelUps -= 1;
     this.modalPaused = true;
     gothicAudio.playLevelUp();
     this.spawnRingBurst(this.heroX, this.heroY, 0xffd166, 22);
@@ -2340,6 +2451,10 @@ export class ArenaScene extends Phaser.Scene {
       this.hp = Math.min(this.stats.maxHp, this.hp + hpDelta + res.healedHp);
       this.modalPaused = false;
       this.pushHudUpdate();
+
+      if (this.pendingLevelUps > 0 && !this.runEnded) {
+        this.time.delayedCall(90, () => this.triggerLevelUpCeremony());
+      }
     });
   }
 
@@ -2555,6 +2670,9 @@ export class ArenaScene extends Phaser.Scene {
       }
     }
 
+    const esc = this.getActEscalation();
+    gothicSoundtrack.setBattleIntensity(esc.act, Boolean(activeBoss));
+
     this.callbacks?.onHudUpdate({
       hp: Math.ceil(this.hp),
       maxHp: this.stats.maxHp,
@@ -2568,6 +2686,8 @@ export class ArenaScene extends Phaser.Scene {
       dashReadyRatio: 1 - Phaser.Math.Clamp(this.dashCooldownTimer / 2.6, 0, 1),
       stageName: this.stageDef.name,
       stageRoman: this.stageDef.roman,
+      actNumber: esc.act,
+      actName: esc.actName,
       inventory: this.inventory,
       boss: activeBoss
         ? {

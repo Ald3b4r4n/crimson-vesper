@@ -11,7 +11,7 @@ Este guia resume todos os **27 Poderes** atualmente no jogo (**9 Armas Sagradas*
 
 ## 2. Armas Sagradas (9) & Suas Evoluções em Baús (9)
 
-> **Regra de Evolução (estilo Vampire Survivors):** Suba a **Arma Sagrada até o Nível 5**, tenha pelo menos **Nível 1 da Relíquia Catalisadora** correspondente no inventário e colete o **Relicário Dourado (Baú)** deixado por um Campeão/Subchefe!
+> **Regra de Evolução Completa dos 6 Slots (Partidas de 40 Minutos):** Suba a **Arma Sagrada até o Nível 5**, tenha pelo menos **Nível 1 da Relíquia Catalisadora** correspondente no inventário e colete um dos **11 Relicários Dourados (Baús)** deixados pelos Campeões ao longo dos 4 Atos (`00:00` · `10:00` · `20:00` · `30:00`). O sistema reserva automaticamente slots compatíveis entre armas e catalisadores para que **todas as 6 armas equipadas possam evoluir** na mesma partida! Todos os 27 poderes contam com ícones ilustrados em `public/art/icons/<id>.webp`.
 
 | # | Arma Base (Nv. 1–5) | Como Ataca | Relíquia Catalisadora | Evolução Ancestral | Poder da Evolução |
 | :- | :--- | :--- | :--- | :--- | :--- |

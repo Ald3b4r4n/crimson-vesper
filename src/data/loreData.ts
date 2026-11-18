@@ -165,6 +165,14 @@ export interface StageDefinition {
   finalBoss: EnemyKind;
 }
 
+export function getWeaponIconUrl(id: WeaponId): string {
+  return `./art/icons/${id}.webp`;
+}
+
+export function getRelicIconUrl(id: RelicId): string {
+  return `./art/icons/${id}.webp`;
+}
+
 export const HEROES: Record<HeroId, HeroDefinition> = {
   alaric: {
     id: 'alaric',
@@ -282,7 +290,7 @@ export const STAGES: StageDefinition[] = [
     bannerUrl: './art/stage-1-forest.jpg',
     threatLabel: 'Ameaça I · Iniciante',
     difficultyMult: 1.0,
-    durationSeconds: 360,
+    durationSeconds: 2400,
     lore: 'As raízes antigas beberam as primeiras lágrimas de Éter após o Eclipse. Peregrinos perdidos, revoadas vampíricas e espíritos silvestres vagam entre os carvalhos mortos.',
     palette: {
       groundBase: '#182817',
@@ -309,7 +317,7 @@ export const STAGES: StageDefinition[] = [
     bannerUrl: './art/stage-2-castle.jpg',
     threatLabel: 'Ameaça II · Assombrado',
     difficultyMult: 1.22,
-    durationSeconds: 390,
+    durationSeconds: 2400,
     lore: 'Nos salões de mármore quebrado do Castelo de Valen, candelabros flutuam sozinhos e os antigos cortesãos dançam como espectros uivantes ao som de órgãos invisíveis.',
     palette: {
       groundBase: '#1c1829',
@@ -336,7 +344,7 @@ export const STAGES: StageDefinition[] = [
     bannerUrl: './art/stage-3-dungeon.jpg',
     threatLabel: 'Ameaça III · Brutal',
     difficultyMult: 1.45,
-    durationSeconds: 420,
+    durationSeconds: 2400,
     lore: 'Abaixo do castelo estendem-se quilômetros de celas alagadas e câmaras de tortura onde dissidentes foram acorrentados. O ar cheira a ferrugem, lodo e fogo alquímico verde.',
     palette: {
       groundBase: '#161d1b',
@@ -363,7 +371,7 @@ export const STAGES: StageDefinition[] = [
     bannerUrl: './art/stage-4-volcano.jpg',
     threatLabel: 'Ameaça IV · Incandescente',
     difficultyMult: 1.72,
-    durationSeconds: 420,
+    durationSeconds: 2400,
     lore: 'Onde a primeira lança perfurou o Sol, gotas de plasma divino secaram o Mar do Sul, criando um deserto de areia obsidiana cortado por rios de lava e vulcões furiosos.',
     palette: {
       groundBase: '#241411',
@@ -390,7 +398,7 @@ export const STAGES: StageDefinition[] = [
     bannerUrl: './art/stage-5-metropolis.jpg',
     threatLabel: 'Ameaça V · Cerco Total',
     difficultyMult: 2.0,
-    durationSeconds: 450,
+    durationSeconds: 2400,
     lore: 'A maior cidade do continente arde em silêncio fúnebre. Aquedutos colapsados, torres de sino em chamas e legiões da antiga guarda real marcham sobre escombros.',
     palette: {
       groundBase: '#211d21',
@@ -417,7 +425,7 @@ export const STAGES: StageDefinition[] = [
     bannerUrl: './art/stage-6-temple.jpg',
     threatLabel: 'Ameaça VI · Sacrilégio',
     difficultyMult: 2.35,
-    durationSeconds: 480,
+    durationSeconds: 2400,
     lore: 'O mármore sagrado foi tingido de carmesim e os serafins de pedra choram sangue escuro. Aqui os Cardeais entoam a liturgia inversa que mantém o Sol aprisionado.',
     palette: {
       groundBase: '#29222b',
@@ -444,7 +452,7 @@ export const STAGES: StageDefinition[] = [
     bannerUrl: './art/stage-7-inferno.jpg',
     threatLabel: 'Ameaça VII · Apocalipse',
     difficultyMult: 2.8,
-    durationSeconds: 540,
+    durationSeconds: 2400,
     lore: 'Abaixo do altar despedaçado abre-se a própria garganta do Abismo: pontes de enxofre e ossos titânicos suspensas sobre mares de sangue astral onde reina o Ceifador.',
     palette: {
       groundBase: '#29080f',

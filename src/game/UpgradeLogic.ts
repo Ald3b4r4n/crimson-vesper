@@ -1,6 +1,8 @@
 import {
   BaseWeaponId,
   EvolvedWeaponId,
+  getRelicIconUrl,
+  getWeaponIconUrl,
   HEROES,
   HeroId,
   HeroStats,
@@ -45,6 +47,8 @@ export interface InventoryState {
   weapons: Partial<Record<WeaponId, number>>;
   relics: Partial<Record<RelicId, number>>;
   souls: number;
+  ascensionMight?: number;
+  ascensionHp?: number;
 }
 
 export type UpgradeKind = 'weapon' | 'relic' | 'evolution' | 'blessing';
@@ -54,6 +58,8 @@ export interface UpgradeChoice {
   kind: UpgradeKind;
   weaponId?: WeaponId;
   relicId?: RelicId;
+  blessingType?: 'might' | 'vitality' | 'souls';
+  iconUrl: string;
   title: string;
   subtitle: string;
   description: string;
@@ -65,10 +71,11 @@ export interface UpgradeChoice {
 }
 
 export function xpRequiredForLevel(level: number): number {
-  if (level <= 1) return 10;
-  if (level < 10) return Math.round(10 + (level - 1) * 9);
-  if (level < 25) return Math.round(92 + (level - 10) * 16);
-  return Math.round(332 + (level - 25) * 26);
+  if (level <= 1) return 8;
+  if (level <= 12) return Math.round(8 + (level - 1) * 7);
+  if (level <= 38) return Math.round(85 + (level - 12) * 12);
+  if (level <= 70) return Math.round(397 + (level - 38) * 18);
+  return Math.round(973 + (level - 70) * 24);
 }
 
 export function createInitialInventory(heroId: HeroId): InventoryState {
@@ -83,6 +90,8 @@ export function createInitialInventory(heroId: HeroId): InventoryState {
     },
     relics: {},
     souls: 0,
+    ascensionMight: 0,
+    ascensionHp: 0,
   };
 }
 
@@ -99,19 +108,21 @@ export function computeEffectiveStats(inv: InventoryState): HeroStats {
   const cloverLv = inv.relics.ash_clover ?? 0;
 
   const kaelenBonusAmount = inv.heroId === 'kaelen' && inv.level >= 5 ? 1 : 0;
+  const ascMight = inv.ascensionMight ?? 0;
+  const ascHp = inv.ascensionHp ?? 0;
 
   return {
-    maxHp: Math.round(base.maxHp * (1 + heartLv * 0.2)),
+    maxHp: Math.round(base.maxHp * (1 + heartLv * 0.2) + ascHp),
     moveSpeed: base.moveSpeed * (1 + sealLv * 0.05),
-    might: base.might + sealLv * 0.12 + orbLv * 0.1,
+    might: base.might + sealLv * 0.12 + orbLv * 0.1 + ascMight,
     area: base.area + candLv * 0.14 + orbLv * 0.1,
-    cooldown: Math.max(0.36, base.cooldown * Math.pow(0.92, tomeLv)),
+    cooldown: Math.max(0.35, base.cooldown * Math.pow(0.92, tomeLv)),
     magnet: base.magnet * (1 + bloodLv * 0.2 + cloverLv * 0.15),
     armor: base.armor + bloodLv,
     regen: base.regen + bloodLv * 0.8,
     amount: base.amount + ringLv + kaelenBonusAmount,
     projSpeed: base.projSpeed + gauntletLv * 0.15,
-    critChance: Math.min(0.85, base.critChance + gauntletLv * 0.06 + cloverLv * 0.08),
+    critChance: Math.min(0.88, base.critChance + gauntletLv * 0.06 + cloverLv * 0.08),
   };
 }
 
@@ -134,6 +145,33 @@ export function getAvailableEvolutions(inv: InventoryState): EvolvedWeaponId[] {
   return ready;
 }
 
+export function getActiveSynergyPairs(inv: InventoryState): Set<BaseWeaponId> {
+  const pairs = new Set<BaseWeaponId>();
+  for (const baseId of ALL_BASE_WEAPONS) {
+    const def = WEAPONS[baseId];
+    const hasBase = (inv.weapons[baseId] ?? 0) > 0;
+    const hasEvolved = Boolean(def.evolvesInto && (inv.weapons[def.evolvesInto] ?? 0) > 0);
+    const hasRelic = Boolean(def.catalystRelic && (inv.relics[def.catalystRelic] ?? 0) > 0);
+    if (hasBase || hasEvolved || hasRelic) {
+      pairs.add(baseId);
+    }
+  }
+  return pairs;
+}
+
+export function getMissingCatalystsForOwnedWeapons(inv: InventoryState): Set<RelicId> {
+  const missing = new Set<RelicId>();
+  for (const baseId of ALL_BASE_WEAPONS) {
+    const def = WEAPONS[baseId];
+    const hasBase = (inv.weapons[baseId] ?? 0) > 0;
+    const alreadyEvolved = Boolean(def.evolvesInto && inv.weapons[def.evolvesInto]);
+    if (hasBase && !alreadyEvolved && def.catalystRelic && !(inv.relics[def.catalystRelic] ?? 0)) {
+      missing.add(def.catalystRelic);
+    }
+  }
+  return missing;
+}
+
 export function buildUpgradeChoices(
   inv: InventoryState,
   count = 3,
@@ -142,6 +180,10 @@ export function buildUpgradeChoices(
   const pool: UpgradeChoice[] = [];
   const ownedWeaponCount = Object.keys(inv.weapons).length;
   const ownedRelicCount = Object.keys(inv.relics).length;
+  const activePairs = getActiveSynergyPairs(inv);
+  // Lock new item pool to the 6 active weapon-catalyst pairs once 6 distinct pairs are touched,
+  // guaranteeing that all 6 weapon slots can ALWAYS acquire their catalyst relic and evolve!
+  const lockToActivePairs = activePairs.size >= MAX_WEAPON_SLOTS;
 
   for (const wId of ALL_BASE_WEAPONS) {
     const def = WEAPONS[wId];
@@ -150,6 +192,7 @@ export function buildUpgradeChoices(
     const current = inv.weapons[wId] ?? 0;
     if (current >= def.maxLevel) continue;
     if (current === 0 && ownedWeaponCount >= MAX_WEAPON_SLOTS) continue;
+    if (current === 0 && lockToActivePairs && !activePairs.has(wId)) continue;
 
     const next = current + 1;
     const catalyst = def.catalystRelic ? RELICS[def.catalystRelic] : undefined;
@@ -159,6 +202,7 @@ export function buildUpgradeChoices(
       uid: `weapon:${wId}:${next}`,
       kind: 'weapon',
       weaponId: wId,
+      iconUrl: getWeaponIconUrl(wId),
       title: def.name,
       subtitle: current === 0 ? 'Nova Arma Sagrada' : `Grau ${current} → ${next}`,
       description: def.descriptions[next - 1] ?? def.tagline,
@@ -168,7 +212,7 @@ export function buildUpgradeChoices(
       accentColor: def.iconColor,
       synergyHint: catalyst
         ? hasCatalyst
-          ? `✦ Ressonância pronta com ${catalyst.name}`
+          ? `★ Ressonância pronta com ${catalyst.name}`
           : `Evolui com: ${catalyst.name}`
         : undefined,
     });
@@ -179,6 +223,9 @@ export function buildUpgradeChoices(
     const current = inv.relics[rId] ?? 0;
     if (current >= def.maxLevel) continue;
     if (current === 0 && ownedRelicCount >= MAX_RELIC_SLOTS) continue;
+    if (current === 0 && lockToActivePairs && !activePairs.has(def.synergyWeapon)) {
+      continue;
+    }
 
     const next = current + 1;
     const synWeapon = WEAPONS[def.synergyWeapon];
@@ -190,6 +237,7 @@ export function buildUpgradeChoices(
       uid: `relic:${rId}:${next}`,
       kind: 'relic',
       relicId: rId,
+      iconUrl: getRelicIconUrl(rId),
       title: def.name,
       subtitle: current === 0 ? 'Nova Relíquia Passiva' : `Grau ${current} → ${next}`,
       description: def.bonusPerLevel,
@@ -198,33 +246,67 @@ export function buildUpgradeChoices(
       maxLevel: def.maxLevel,
       accentColor: def.iconColor,
       synergyHint: hasWeapon
-        ? `✦ Catalisador ativo p/ ${synWeapon.name}`
+        ? `★ Catalisador da sua arma: ${synWeapon.name}`
         : `Catalisa: ${synWeapon.name}`,
     });
   }
 
   const weighted = pool.map((choice) => {
     let weight = 1.0;
-    if (choice.currentLevel > 0) weight += 0.65;
-    if (choice.synergyHint?.startsWith('✦')) weight += 0.45;
+    if (choice.currentLevel > 0) weight += 0.9;
+    if (choice.synergyHint?.startsWith('★')) weight += 1.45;
     return { choice, sortKey: Math.pow(rng(), 1 / weight) };
   });
   weighted.sort((a, b) => b.sortKey - a.sortKey);
 
   const selected = weighted.slice(0, count).map((w) => w.choice);
 
-  if (selected.length === 0) {
-    selected.push({
-      uid: 'blessing:chalice',
+  // Limit Break / Ascension choices once build is maxed!
+  const ascensions: UpgradeChoice[] = [
+    {
+      uid: 'blessing:might',
       kind: 'blessing',
-      title: 'Cálice de Cinza Pura',
-      subtitle: 'Bênção Perpétua',
-      description: 'Restaura 40 Pontos de Vida e concede +30 Estilhaços de Alma.',
+      blessingType: 'might',
+      iconUrl: getRelicIconUrl('amber_seal'),
+      title: 'Ascensão Solar',
+      subtitle: 'Maestria Infinita',
+      description: 'Aumenta permanentemente o Poder de Dano de todas as armas em +10%.',
       currentLevel: 0,
       nextLevel: 1,
-      maxLevel: 1,
-      accentColor: '#ffd166',
-    });
+      maxLevel: 99,
+      accentColor: '#ffe79e',
+    },
+    {
+      uid: 'blessing:vitality',
+      kind: 'blessing',
+      blessingType: 'vitality',
+      iconUrl: getRelicIconUrl('black_heart'),
+      title: 'Cálice de Cinza Pura',
+      subtitle: 'Bênção Perpétua',
+      description: '+20 Vida Máxima permanente e restaura 45 Pontos de Vida.',
+      currentLevel: 0,
+      nextLevel: 1,
+      maxLevel: 99,
+      accentColor: '#ff4d6d',
+    },
+    {
+      uid: 'blessing:souls',
+      kind: 'blessing',
+      blessingType: 'souls',
+      iconUrl: getRelicIconUrl('duplicator_ring'),
+      title: 'Tributo Astral',
+      subtitle: 'Riqueza do Conclave',
+      description: 'Restaura 25 PV e concede +45 Estilhaços de Alma.',
+      currentLevel: 0,
+      nextLevel: 1,
+      maxLevel: 99,
+      accentColor: '#7ce8ff',
+    },
+  ];
+
+  let ascIdx = 0;
+  while (selected.length < count && ascIdx < ascensions.length) {
+    selected.push(ascensions[ascIdx++]);
   }
 
   return selected;
@@ -253,8 +335,15 @@ export function applyUpgradeChoice(
     evolvedWeapon = choice.weaponId as EvolvedWeaponId;
     healedHp += 35;
   } else if (choice.kind === 'blessing') {
-    healedHp += 40;
-    inv.souls += 30;
+    if (choice.blessingType === 'might') {
+      inv.ascensionMight = (inv.ascensionMight ?? 0) + 0.1;
+    } else if (choice.blessingType === 'vitality') {
+      inv.ascensionHp = (inv.ascensionHp ?? 0) + 20;
+      healedHp += 45;
+    } else {
+      healedHp += 25;
+      inv.souls += 45;
+    }
   }
 
   return { healedHp, evolvedWeapon };
@@ -272,8 +361,9 @@ export function resolveRelicChest(
       uid: `evolution:${evoId}`,
       kind: 'evolution',
       weaponId: evoId,
+      iconUrl: getWeaponIconUrl(evoId),
       title: evoDef.name,
-      subtitle: '✦ EVOLUÇÃO ANCESTRAL DESPERTA ✦',
+      subtitle: '★ EVOLUÇÃO ANCESTRAL DESPERTA ★',
       description: evoDef.tagline,
       currentLevel: 0,
       nextLevel: 1,

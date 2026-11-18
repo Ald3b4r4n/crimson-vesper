@@ -1,6 +1,9 @@
 import { gothicAudio } from '../audio/GothicAudio';
+import { gothicSoundtrack } from '../audio/GothicSoundtrack';
 import {
   ENEMIES,
+  getRelicIconUrl,
+  getWeaponIconUrl,
   HEROES,
   HeroId,
   LORE_CHAPTERS,
@@ -11,8 +14,9 @@ import {
   WEAPONS,
   WeaponId,
 } from '../data/loreData';
-import { ALL_BASE_WEAPONS, ALL_RELICS, UpgradeChoice } from '../game/UpgradeLogic';
+import { ALL_BASE_WEAPONS, UpgradeChoice } from '../game/UpgradeLogic';
 import { ArenaCallbacks, HudSnapshot, RunSummary } from '../scenes/ArenaScene';
+import { ViewportManager } from './ViewportManager';
 
 const RECORDS_STORAGE_KEY = 'crimson_vesper.records.v2';
 
@@ -24,7 +28,8 @@ interface SavedRecords {
   clearedStages: StageId[];
 }
 
-type HubTab = 'play' | 'powers' | 'lore';
+type MenuScreen = 'splash' | 'hero_select' | 'stage_select' | 'arsenal' | 'lore';
+type InspectedPower = { kind: 'weapon'; id: WeaponId } | { kind: 'relic'; id: RelicId };
 
 function formatClock(totalSeconds: number): string {
   const s = Math.max(0, Math.floor(totalSeconds));
@@ -33,12 +38,26 @@ function formatClock(totalSeconds: number): string {
   return `${mm}:${ss}`;
 }
 
+function renderLevelPips(lv: number, maxLv: number): string {
+  let dots = '';
+  const total = Math.min(5, maxLv);
+  for (let i = 1; i <= total; i++) {
+    dots += `<span class="pip-dot ${i <= lv ? 'filled' : ''}"></span>`;
+  }
+  return `<div class="slot-pips">${dots}</div>`;
+}
+
 export class UIManager {
   private readonly root: HTMLElement;
+  private readonly viewport: ViewportManager;
   private readonly curtain: HTMLElement;
+
+  private currentScreen: MenuScreen = 'splash';
+  private lastRenderedScreen: MenuScreen | null = null;
   private selectedHero: HeroId = 'alaric';
   private selectedStage: StageId = 'forest';
-  private activeTab: HubTab = 'play';
+  private inspectedPower: InspectedPower = { kind: 'weapon', id: 'whip' };
+  private selectedLoreIndex = 0;
 
   private onStartRun: (heroId: HeroId, stageId: StageId, callbacks: ArenaCallbacks) => void;
   private onSetVirtualJoystick: (dx: number, dy: number) => void;
@@ -70,6 +89,7 @@ export class UIManager {
 
   constructor(
     root: HTMLElement,
+    viewport: ViewportManager,
     hooks: {
       onStartRun: (heroId: HeroId, stageId: StageId, callbacks: ArenaCallbacks) => void;
       onSetVirtualJoystick: (dx: number, dy: number) => void;
@@ -80,6 +100,7 @@ export class UIManager {
     }
   ) {
     this.root = root;
+    this.viewport = viewport;
     this.onStartRun = hooks.onStartRun;
     this.onSetVirtualJoystick = hooks.onSetVirtualJoystick;
     this.onTriggerDash = hooks.onTriggerDash;
@@ -91,7 +112,7 @@ export class UIManager {
     this.curtain.className = 'eclipse-curtain';
     document.getElementById('game-root')?.appendChild(this.curtain);
 
-    this.renderTitleScreen();
+    this.renderMenu();
   }
 
   private loadRecords(): SavedRecords {
@@ -138,308 +159,655 @@ export class UIManager {
       window.setTimeout(() => {
         this.curtain.classList.remove('active');
       }, 90);
-    }, 320);
+    }, 300);
   }
 
   renderTitleScreen(): void {
-    this.clearKeyPickHandler();
-    const rec = this.loadRecords();
+    this.currentScreen = 'splash';
+    this.renderMenu();
+  }
 
-    const screen = document.createElement('div');
-    screen.className = 'title-screen';
-    screen.dataset.testid = 'title-screen';
+  private renderMenu(): void {
+    this.clearKeyPickHandler();
+    this.hudRoot = null;
+    gothicSoundtrack.playMenuMusic();
+
+    const menu = document.createElement('div');
+    menu.className = 'menu-root';
+    menu.dataset.testid = 'title-screen';
 
     const bgArt = document.createElement('div');
-    bgArt.className = 'title-bg-art';
-    bgArt.style.backgroundImage = "url('./art/intro-cover.jpg')";
+    bgArt.className = 'menu-bg-art';
+    const stageArt =
+      this.currentScreen === 'stage_select'
+        ? (STAGES.find((s) => s.id === this.selectedStage)?.bannerUrl ?? './art/intro-cover.jpg')
+        : './art/intro-cover.jpg';
+    bgArt.style.backgroundImage = `url('${stageArt}')`;
+
     const bgVignette = document.createElement('div');
-    bgVignette.className = 'title-bg-vignette';
-    screen.append(bgArt, bgVignette);
+    bgVignette.className = 'menu-bg-vignette';
 
-    const scrollBody = document.createElement('div');
-    scrollBody.className = 'title-scroll-body';
-
-    const header = document.createElement('div');
-    header.className = 'title-header';
-    header.innerHTML = `
-      <div class="title-kicker">Crônicas dos Juramentados da Cinza</div>
-      <h1 class="title-main">VESPERA</h1>
-      <p class="title-sub">Eclipse Carmesim</p>
-    `;
-    scrollBody.appendChild(header);
-
-    // Navigation Tabs
-    const tabs = document.createElement('div');
-    tabs.className = 'hub-tabs';
-    const tabDefs: Array<{ id: HubTab; label: string; testId: string }> = [
-      { id: 'play', label: '⚔ Vigília & 7 Fases', testId: 'tab-play' },
-      { id: 'powers', label: '✦ Lista de Poderes (27)', testId: 'tab-powers' },
-      { id: 'lore', label: '📜 Grimório & Lore', testId: 'tab-lore' },
-    ];
-    for (const t of tabDefs) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.dataset.testid = t.testId;
-      btn.className = `hub-tab-btn ${this.activeTab === t.id ? 'active' : ''}`;
-      btn.textContent = t.label;
-      btn.addEventListener('click', () => {
-        this.activeTab = t.id;
-        this.renderTitleScreen();
-      });
-      tabs.appendChild(btn);
-    }
-    scrollBody.appendChild(tabs);
-
-    const contentHost = document.createElement('div');
-    contentHost.className = 'hub-section';
-
-    if (this.activeTab === 'play') {
-      this.populatePlayTab(contentHost, rec, () => this.updateFooterSummary(footerSummary));
-    } else if (this.activeTab === 'powers') {
-      this.populatePowersTab(contentHost);
-    } else {
-      this.populateLoreTab(contentHost);
+    const embers = document.createElement('div');
+    embers.className = 'menu-embers';
+    for (let i = 0; i < 16; i++) {
+      const dot = document.createElement('span');
+      dot.className = 'ember-dot';
+      dot.style.left = `${(i * 6.3 + 3) % 98}%`;
+      dot.style.animationDuration = `${5 + (i % 5) * 1.4}s`;
+      dot.style.animationDelay = `-${(i * 0.8) % 6}s`;
+      embers.appendChild(dot);
     }
 
-    scrollBody.appendChild(contentHost);
-    screen.appendChild(scrollBody);
+    menu.append(bgArt, bgVignette, embers);
 
-    // Sticky Footer Action Bar
-    const footer = document.createElement('div');
-    footer.className = 'title-footer-bar';
+    // Top Game Chrome Bar (Fullscreen Landscape + Music + SFX)
+    const topBar = document.createElement('div');
+    topBar.className = 'menu-top-bar';
 
-    const footerSummary = document.createElement('div');
-    footerSummary.className = 'selection-summary';
-    this.updateFooterSummary(footerSummary);
+    const leftTag = document.createElement('div');
+    leftTag.className = 'game-crest-tag';
+    leftTag.textContent = '❖ Vespera · Vigília de 40 Minutos';
 
-    const footerBtns = document.createElement('div');
-    footerBtns.className = 'footer-buttons';
+    const rightUtils = document.createElement('div');
+    rightUtils.className = 'top-utility-btns';
 
-    const startBtn = document.createElement('button');
-    startBtn.type = 'button';
-    startBtn.className = 'btn-gothic';
-    startBtn.dataset.testid = 'start-run-btn';
-    startBtn.textContent = 'Iniciar Vigília';
-    startBtn.addEventListener('click', () => this.beginArenaRun());
+    const fsBtn = document.createElement('button');
+    fsBtn.type = 'button';
+    fsBtn.dataset.testid = 'fullscreen-btn';
+    const isMob = this.viewport.isMobileViewport();
+    const isFs = this.viewport.isLandscapeActive();
+    fsBtn.className = `btn-utility ${isMob && !isFs ? 'highlight-fs' : ''}`;
+    fsBtn.textContent = isFs ? '⛶ Sair Tela Cheia' : '⛶ Tela Cheia (Deitada)';
+    fsBtn.addEventListener('click', async () => {
+      await this.viewport.toggleFullscreenLandscape();
+      this.renderMenu();
+    });
+
+    const bgmBtn = document.createElement('button');
+    bgmBtn.type = 'button';
+    bgmBtn.className = 'btn-utility';
+    bgmBtn.textContent = gothicSoundtrack.isMuted() ? '🎵 Música: Off' : '🎵 Música: On';
+    bgmBtn.addEventListener('click', () => {
+      const m = gothicSoundtrack.toggleMute();
+      bgmBtn.textContent = m ? '🎵 Música: Off' : '🎵 Música: On';
+    });
 
     const muteBtn = document.createElement('button');
     muteBtn.type = 'button';
-    muteBtn.className = 'btn-gothic secondary';
-    muteBtn.textContent = gothicAudio.isMuted() ? '🔇 Mudo' : '🔊 Áudio';
+    muteBtn.className = 'btn-utility';
+    muteBtn.textContent = gothicAudio.isMuted() ? '🔇 Efeitos' : '🔊 Efeitos';
     muteBtn.addEventListener('click', () => {
       const m = gothicAudio.toggleMute();
-      muteBtn.textContent = m ? '🔇 Mudo' : '🔊 Áudio';
+      muteBtn.textContent = m ? '🔇 Efeitos' : '🔊 Efeitos';
     });
 
-    footerBtns.append(startBtn, muteBtn);
-    footer.append(footerSummary, footerBtns);
-    screen.appendChild(footer);
+    rightUtils.append(fsBtn, bgmBtn, muteBtn);
+    topBar.append(leftTag, rightUtils);
+    menu.appendChild(topBar);
 
-    this.root.replaceChildren(screen);
+    const screenChanged = this.currentScreen !== this.lastRenderedScreen;
+    this.lastRenderedScreen = this.currentScreen;
+
+    if (this.currentScreen === 'splash') {
+      this.buildSplashScreen(menu);
+    } else if (this.currentScreen === 'hero_select') {
+      this.buildHeroSelectScreen(menu);
+    } else if (this.currentScreen === 'stage_select') {
+      this.buildStageSelectScreen(menu);
+    } else if (this.currentScreen === 'arsenal') {
+      this.buildArsenalScreen(menu);
+    } else {
+      this.buildLoreScreen(menu);
+    }
+
+    if (screenChanged) {
+      menu.querySelector('.splash-center, .subscreen-shell')?.classList.add('screen-enter');
+    }
+
+    this.root.replaceChildren(menu);
   }
 
-  private updateFooterSummary(container: HTMLElement): void {
-    const hero = HEROES[this.selectedHero];
-    const stage = STAGES.find((s) => s.id === this.selectedStage) ?? STAGES[0];
+  private buildSplashScreen(menu: HTMLElement): void {
     const rec = this.loadRecords();
-    container.innerHTML = `
-      <div class="selection-main">
-        ${hero.name} · Fase ${stage.roman}: ${stage.name}
-      </div>
-      <div class="selection-sub">
-        Regiões Purificadas: <strong>${rec.clearedStages.length}/7</strong> ·
-        Recorde de Abates: <strong>${rec.bestKills}</strong> ·
-        Almas: <strong>${rec.totalSouls}</strong>
+
+    const center = document.createElement('div');
+    center.className = 'splash-center';
+    center.innerHTML = `
+      <div class="logo-emblem">
+        <div class="logo-kicker">Crônicas dos Juramentados da Cinza</div>
+        <h1 class="logo-title title-main">VESPERA</h1>
+        <div class="logo-ribbon">Eclipse Carmesim</div>
       </div>
     `;
+
+    const stack = document.createElement('div');
+    stack.className = 'splash-menu-stack';
+
+    const playBtn = document.createElement('button');
+    playBtn.type = 'button';
+    playBtn.className = 'game-plaque-btn primary';
+    playBtn.dataset.testid = 'menu-play-btn';
+    playBtn.textContent = '⚔ Jogar';
+    playBtn.addEventListener('click', async () => {
+      gothicAudio.playWand(false);
+      if (this.viewport.isMobileViewport() && !this.viewport.isLandscapeActive()) {
+        await this.viewport.enterFullscreenLandscape();
+      }
+      this.currentScreen = 'hero_select';
+      this.renderMenu();
+    });
+
+    const arsenalBtn = document.createElement('button');
+    arsenalBtn.type = 'button';
+    arsenalBtn.className = 'game-plaque-btn';
+    arsenalBtn.dataset.testid = 'tab-powers';
+    arsenalBtn.textContent = '✦ Grade de Poderes';
+    arsenalBtn.addEventListener('click', () => {
+      gothicAudio.playWand(false);
+      this.currentScreen = 'arsenal';
+      this.renderMenu();
+    });
+
+    const loreBtn = document.createElement('button');
+    loreBtn.type = 'button';
+    loreBtn.className = 'game-plaque-btn';
+    loreBtn.dataset.testid = 'tab-lore';
+    loreBtn.textContent = '📜 Grimório & Lore';
+    loreBtn.addEventListener('click', () => {
+      gothicAudio.playWand(false);
+      this.currentScreen = 'lore';
+      this.renderMenu();
+    });
+
+    stack.append(playBtn, arsenalBtn, loreBtn);
+    center.appendChild(stack);
+    menu.appendChild(center);
+
+    const status = document.createElement('div');
+    status.className = 'splash-status-strip';
+    status.innerHTML = `
+      <span>👑 Regiões Purificadas: <strong>${rec.clearedStages.length}/7</strong></span>
+      <span>☠ Recorde de Abates: <strong>${rec.bestKills}</strong></span>
+      <span>✦ Almas Colhidas: <strong>${rec.totalSouls}</strong></span>
+      <span>⏱ Melhor Tempo: <strong>${formatClock(rec.bestSeconds)}</strong></span>
+    `;
+    menu.appendChild(status);
   }
 
-  private populatePlayTab(
-    host: HTMLElement,
-    rec: SavedRecords,
-    onSelectionChange: () => void
-  ): void {
-    const heroHeading = document.createElement('div');
-    heroHeading.className = 'section-heading';
-    heroHeading.textContent = '1. Escolha seu Juramentado da Cinza';
-    host.appendChild(heroHeading);
+  private buildHeroSelectScreen(menu: HTMLElement): void {
+    const shell = document.createElement('div');
+    shell.className = 'subscreen-shell';
 
-    const heroGrid = document.createElement('div');
-    heroGrid.className = 'hero-grid';
+    const header = document.createElement('div');
+    header.className = 'subscreen-header';
+
+    const backBtn = document.createElement('button');
+    backBtn.type = 'button';
+    backBtn.className = 'btn-gothic secondary';
+    backBtn.textContent = '← Menu';
+    backBtn.addEventListener('click', () => {
+      this.currentScreen = 'splash';
+      this.renderMenu();
+    });
+
+    const title = document.createElement('h2');
+    title.className = 'subscreen-title';
+    title.textContent = 'Escolha seu Juramentado';
+
+    header.append(backBtn, title, document.createElement('div'));
+    shell.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'subscreen-body';
+
+    const roster = document.createElement('div');
+    roster.className = 'roster-list';
     const heroIds: HeroId[] = ['alaric', 'seraphina', 'kaelen', 'valeria'];
 
     for (const hId of heroIds) {
-      const hero = HEROES[hId];
-      const weapon = WEAPONS[hero.startingWeapon];
-      const card = document.createElement('button');
-      card.type = 'button';
-      card.dataset.testid = `hero-card-${hId}`;
-      card.className = `hero-card ${this.selectedHero === hId ? 'selected' : ''}`;
-
-      card.innerHTML = `
-        <div class="hero-card-top">
-          <img class="hero-portrait" src="${hero.portraitUrl}" alt="${hero.name}" loading="eager" />
-          <div>
-            <h3 class="hero-name">${hero.name}</h3>
-            <div class="hero-epithet">${hero.epithet}</div>
-            <span class="hero-weapon-pill">${weapon.glyph} ${weapon.name}</span>
+      const h = HEROES[hId];
+      const w = WEAPONS[h.startingWeapon];
+      const slot = document.createElement('button');
+      slot.type = 'button';
+      slot.dataset.testid = `hero-card-${hId}`;
+      slot.className = `roster-slot ${this.selectedHero === hId ? 'selected' : ''}`;
+      slot.innerHTML = `
+        <img class="roster-thumb" src="${h.portraitUrl}" alt="${h.name}" />
+        <div>
+          <div class="roster-slot-name">${h.name}</div>
+          <div class="roster-slot-sub">
+            <img class="mini-icon-inline" src="${getWeaponIconUrl(h.startingWeapon)}" alt="${w.name}" />
+            ${w.name}
           </div>
         </div>
-        <div class="hero-perk">${hero.perkSummary}</div>
-        <p class="hero-lore">${hero.lore}</p>
       `;
-
-      card.addEventListener('click', () => {
+      slot.addEventListener('click', () => {
+        gothicAudio.playHit();
         this.selectedHero = hId;
-        heroGrid.querySelectorAll('.hero-card').forEach((el) => el.classList.remove('selected'));
-        card.classList.add('selected');
-        onSelectionChange();
+        this.renderMenu();
       });
-      heroGrid.appendChild(card);
+      roster.appendChild(slot);
     }
-    host.appendChild(heroGrid);
 
-    const stageHeading = document.createElement('div');
-    stageHeading.className = 'section-heading';
-    stageHeading.textContent = '2. Escolha a Região da Peregrinação (7 Fases)';
-    host.appendChild(stageHeading);
+    const hero = HEROES[this.selectedHero];
+    const startWeapon = WEAPONS[hero.startingWeapon];
+    const s = hero.baseStats;
 
-    const stageGrid = document.createElement('div');
-    stageGrid.className = 'stage-grid';
+    const hpPct = Math.min(100, Math.round((s.maxHp / 150) * 100));
+    const dmgPct = Math.min(100, Math.round((s.might / 1.3) * 100));
+    const spdPct = Math.min(100, Math.round((s.moveSpeed / 205) * 100));
+    const critPct = Math.min(100, Math.round((s.critChance / 0.25) * 100));
+
+    const showcase = document.createElement('div');
+    showcase.className = 'showcase-panel';
+    showcase.innerHTML = `
+      <div>
+        <div class="hero-showcase-top">
+          <div class="hero-pedestal-box">
+            <div class="hero-live-sprite" style="background-image:url('./art/sprites/hero_${hero.id}.webp')"></div>
+          </div>
+          <div class="hero-showcase-info">
+            <h2>${hero.name}</h2>
+            <div class="hero-showcase-epithet">${hero.epithet}</div>
+            <div class="weapon-crest-badge">
+              <img class="mini-icon-inline" src="${getWeaponIconUrl(hero.startingWeapon)}" alt="${startWeapon.name}" />
+              Arma Inicial: ${startWeapon.name}
+            </div>
+            <div style="font-size:0.76rem; color:#98f5cb; margin-top:6px">${hero.perkSummary}</div>
+          </div>
+        </div>
+
+        <div class="stat-bars-grid">
+          <div class="stat-bar-item">
+            <div class="stat-bar-label"><span>VITALIDADE</span><span>${s.maxHp} PV</span></div>
+            <div class="stat-bar-track"><div class="stat-bar-fill" style="width:${hpPct}%"></div></div>
+          </div>
+          <div class="stat-bar-item">
+            <div class="stat-bar-label"><span>PODER DE DANO</span><span>${Math.round(s.might * 100)}%</span></div>
+            <div class="stat-bar-track"><div class="stat-bar-fill" style="width:${dmgPct}%"></div></div>
+          </div>
+          <div class="stat-bar-item">
+            <div class="stat-bar-label"><span>VELOCIDADE</span><span>${s.moveSpeed}</span></div>
+            <div class="stat-bar-track"><div class="stat-bar-fill" style="width:${spdPct}%"></div></div>
+          </div>
+          <div class="stat-bar-item">
+            <div class="stat-bar-label"><span>CHANCE CRÍTICA</span><span>${Math.round(s.critChance * 100)}%</span></div>
+            <div class="stat-bar-track"><div class="stat-bar-fill" style="width:${critPct}%"></div></div>
+          </div>
+        </div>
+
+        <p style="font-family:var(--font-lore); font-size:0.98rem; color:#dfd3dd; margin:6px 0 0">
+          ${hero.lore} <em style="color:#f5c2cf">${hero.quote}</em>
+        </p>
+      </div>
+
+      <div class="showcase-footer">
+        <span style="font-size:0.75rem; color:var(--text-muted)">6 Slots de Armas Evoluíveis · Passo Espectral [Espaço]</span>
+        <button type="button" class="btn-gothic" data-testid="go-stage-select-btn">Escolher Região ➔</button>
+      </div>
+    `;
+
+    showcase.querySelector('[data-testid="go-stage-select-btn"]')?.addEventListener('click', () => {
+      gothicAudio.playWand(false);
+      this.currentScreen = 'stage_select';
+      this.renderMenu();
+    });
+
+    body.append(roster, showcase);
+    shell.appendChild(body);
+    menu.appendChild(shell);
+  }
+
+  private buildStageSelectScreen(menu: HTMLElement): void {
+    const rec = this.loadRecords();
+    const shell = document.createElement('div');
+    shell.className = 'subscreen-shell';
+
+    const header = document.createElement('div');
+    header.className = 'subscreen-header';
+
+    const backBtn = document.createElement('button');
+    backBtn.type = 'button';
+    backBtn.className = 'btn-gothic secondary';
+    backBtn.textContent = '← Heróis';
+    backBtn.addEventListener('click', () => {
+      this.currentScreen = 'hero_select';
+      this.renderMenu();
+    });
+
+    const title = document.createElement('h2');
+    title.className = 'subscreen-title';
+    title.textContent = 'Mapa das Sete Regiões (40 Minutos · 4 Atos)';
+
+    const heroBadge = document.createElement('div');
+    heroBadge.className = 'weapon-crest-badge';
+    heroBadge.textContent = `⚔ ${HEROES[this.selectedHero].name}`;
+
+    header.append(backBtn, title, heroBadge);
+    shell.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'subscreen-body';
+
+    const roster = document.createElement('div');
+    roster.className = 'roster-list';
 
     for (const st of STAGES) {
       const cleared = rec.clearedStages.includes(st.id);
-      const bossName = ENEMIES[st.finalBoss].name;
-      const card = document.createElement('button');
-      card.type = 'button';
-      card.dataset.testid = `stage-card-${st.id}`;
-      card.className = `stage-card ${this.selectedStage === st.id ? 'selected' : ''}`;
-
-      card.innerHTML = `
-        <div class="stage-banner-wrap">
-          <img class="stage-banner-img" src="${st.bannerUrl}" alt="${st.name}" loading="lazy" />
-          <span class="stage-roman-badge">FASE ${st.roman}</span>
-          ${cleared ? `<span class="stage-crown-badge">👑 Purificada</span>` : ''}
-        </div>
-        <div class="stage-card-body">
-          <h4 class="stage-title">${st.name}</h4>
-          <div class="stage-threat">${st.threatLabel} · Guardião: ${bossName}</div>
-          <p class="stage-desc">${st.lore}</p>
+      const slot = document.createElement('button');
+      slot.type = 'button';
+      slot.dataset.testid = `stage-card-${st.id}`;
+      slot.className = `roster-slot ${this.selectedStage === st.id ? 'selected' : ''}`;
+      slot.innerHTML = `
+        <img class="roster-thumb" src="${st.bannerUrl}" alt="${st.name}" />
+        <div style="flex:1">
+          <div class="roster-slot-name">Fase ${st.roman} · ${st.name}</div>
+          <div class="roster-slot-sub">${st.threatLabel} ${cleared ? '· 👑 Purificada' : ''}</div>
         </div>
       `;
-
-      card.addEventListener('click', () => {
+      slot.addEventListener('click', () => {
+        gothicAudio.playHit();
         this.selectedStage = st.id;
-        stageGrid.querySelectorAll('.stage-card').forEach((el) => el.classList.remove('selected'));
-        card.classList.add('selected');
-        onSelectionChange();
+        this.renderMenu();
       });
-      stageGrid.appendChild(card);
+      roster.appendChild(slot);
     }
-    host.appendChild(stageGrid);
+
+    const st = STAGES.find((x) => x.id === this.selectedStage) ?? STAGES[0];
+    const boss = ENEMIES[st.finalBoss];
+    const cleared = rec.clearedStages.includes(st.id);
+
+    const showcase = document.createElement('div');
+    showcase.className = 'showcase-panel';
+    showcase.innerHTML = `
+      <div>
+        <div class="stage-cinema-banner">
+          <img src="${st.bannerUrl}" alt="${st.name}" />
+          <div class="stage-cinema-overlay">
+            <div>
+              <div style="font-size:0.72rem; color:#ff9ebb; font-weight:700; text-transform:uppercase">
+                FASE ${st.roman} · ${st.threatLabel} ${cleared ? '· 👑 PURIFICADA' : ''}
+              </div>
+              <h2 style="font-family:var(--font-display); font-size:1.35rem; color:var(--gold-bright); margin:2px 0 0">
+                ${st.name}
+              </h2>
+            </div>
+            <div class="boss-preview-chip">
+              <div class="boss-mini-sprite" style="background-image:url('./art/sprites/enemy_${st.finalBoss}.webp')"></div>
+              <div style="text-align:left">
+                <div style="font-size:0.62rem; color:#ff8fa3; text-transform:uppercase">Guardião (40:00)</div>
+                <div style="font-family:var(--font-display); font-size:0.76rem; color:#ffe79e">${boss.name}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <p style="font-family:var(--font-lore); font-size:1.02rem; line-height:1.36; color:#e2d7e0; margin:10px 0 6px">
+          ${st.lore}
+        </p>
+        <div style="font-size:0.75rem; color:#ffe79e">
+          ✦ Escalada em 4 Atos de 10 min (00:00 · 10:00 · 20:00 · 30:00) + 11 Relicários para evoluir todas as 6 armas!
+        </div>
+      </div>
+
+      <div class="showcase-footer">
+        <span style="font-size:0.75rem; color:var(--text-muted)">
+          Partida Completa: <strong>${formatClock(st.durationSeconds)}</strong>
+        </span>
+        <button type="button" class="btn-gothic" data-testid="start-run-btn">⚔ Iniciar Vigília</button>
+      </div>
+    `;
+
+    showcase.querySelector('[data-testid="start-run-btn"]')?.addEventListener('click', async () => {
+      if (this.viewport.isMobileViewport() && !this.viewport.isLandscapeActive()) {
+        await this.viewport.enterFullscreenLandscape();
+      }
+      this.beginArenaRun();
+    });
+
+    body.append(roster, showcase);
+    shell.appendChild(body);
+    menu.appendChild(shell);
   }
 
-  private populatePowersTab(host: HTMLElement): void {
-    const h1 = document.createElement('div');
-    h1.className = 'section-heading';
-    h1.textContent = 'Armas Sagradas (9) & Suas Evoluções Ancestrais (9)';
-    host.appendChild(h1);
+  private buildArsenalScreen(menu: HTMLElement): void {
+    const shell = document.createElement('div');
+    shell.className = 'subscreen-shell';
 
-    const weaponGrid = document.createElement('div');
-    weaponGrid.className = 'codex-grid';
+    const header = document.createElement('div');
+    header.className = 'subscreen-header';
+    const backBtn = document.createElement('button');
+    backBtn.type = 'button';
+    backBtn.className = 'btn-gothic secondary';
+    backBtn.textContent = '← Menu';
+    backBtn.addEventListener('click', () => {
+      this.currentScreen = 'splash';
+      this.renderMenu();
+    });
+    const title = document.createElement('h2');
+    title.className = 'subscreen-title';
+    title.textContent = 'Grade de Poderes & Matriz de Evoluções (27)';
+    header.append(backBtn, title, document.createElement('div'));
+    shell.appendChild(header);
 
-    for (const wId of ALL_BASE_WEAPONS) {
-      const w = WEAPONS[wId];
+    const body = document.createElement('div');
+    body.className = 'subscreen-body';
+
+    // Left: 9-Row Visual Synergy Matrix (Arma Base + Relíquia Catalisadora -> Evolução Ancestral!)
+    const matrix = document.createElement('div');
+    matrix.className = 'synergy-matrix';
+
+    for (const baseId of ALL_BASE_WEAPONS) {
+      const baseW = WEAPONS[baseId];
+      const catId = baseW.catalystRelic!;
+      const catR = RELICS[catId];
+      const evoId = baseW.evolvesInto!;
+      const evoW = WEAPONS[evoId];
+
+      const row = document.createElement('div');
+      row.className = 'synergy-row';
+
+      const makeTile = (
+        target: InspectedPower,
+        iconUrl: string,
+        label: string,
+        isEvolved = false
+      ) => {
+        const isSel =
+          this.inspectedPower.kind === target.kind && this.inspectedPower.id === target.id;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `power-icon-tile ${isEvolved ? 'evolved-tile' : ''} ${isSel ? 'selected' : ''}`;
+        btn.title = label;
+        btn.innerHTML = `
+          <img class="power-icon-img" src="${iconUrl}" alt="${label}" />
+          ${isEvolved ? '<span class="evo-star-corner">★</span>' : ''}
+        `;
+        btn.addEventListener('click', () => {
+          gothicAudio.playHit();
+          this.inspectedPower = target;
+          this.renderMenu();
+        });
+        return btn;
+      };
+
+      const plus = document.createElement('span');
+      plus.className = 'synergy-op';
+      plus.textContent = '+';
+
+      const arrow = document.createElement('span');
+      arrow.className = 'synergy-op';
+      arrow.textContent = '➔';
+
+      row.append(
+        makeTile({ kind: 'weapon', id: baseId }, getWeaponIconUrl(baseId), baseW.name),
+        plus,
+        makeTile({ kind: 'relic', id: catId }, getRelicIconUrl(catId), catR.name),
+        arrow,
+        makeTile({ kind: 'weapon', id: evoId }, getWeaponIconUrl(evoId), evoW.name, true)
+      );
+      matrix.appendChild(row);
+    }
+
+    // Right: Rich Power Inspector Card
+    const inspector = document.createElement('div');
+    inspector.className = 'showcase-panel codex-card';
+
+    if (this.inspectedPower.kind === 'weapon') {
+      const w = WEAPONS[this.inspectedPower.id];
       const cat = w.catalystRelic ? RELICS[w.catalystRelic] : null;
       const evo = w.evolvesInto ? WEAPONS[w.evolvesInto] : null;
+      const fromBase = w.evolvesFrom ? WEAPONS[w.evolvesFrom] : null;
+      const fromCat = fromBase?.catalystRelic ? RELICS[fromBase.catalystRelic] : null;
 
-      const card = document.createElement('div');
-      card.className = 'codex-card';
-      card.innerHTML = `
-        <div class="codex-card-head">
-          <h4 class="codex-title" style="color:${w.iconColor}">${w.glyph} ${w.name}</h4>
-          <span class="codex-cat">${w.category}</span>
+      const levelsHtml = w.descriptions
+        .map(
+          (d, idx) =>
+            `<div style="font-size:0.78rem; padding:3px 0; color:#e2d7e0"><strong>${w.isEvolved ? 'Poder Supremo' : `Grau ${idx + 1}`}:</strong> ${d}</div>`
+        )
+        .join('');
+
+      inspector.innerHTML = `
+        <div>
+          <div style="display:flex; align-items:center; gap:14px; margin-bottom:10px">
+            <div class="power-icon-tile ${w.isEvolved ? 'evolved-tile' : ''} selected" style="width:72px; height:72px; margin:0; cursor:default">
+              <img class="power-icon-img" src="${getWeaponIconUrl(w.id)}" alt="${w.name}" />
+            </div>
+            <div>
+              <div style="font-size:0.72rem; color:${w.isEvolved ? '#ff8fa3' : '#98f5cb'}; text-transform:uppercase; font-weight:700">${w.category}</div>
+              <h3 style="font-family:var(--font-display); font-size:1.4rem; color:var(--gold-bright); margin:2px 0">${w.name}</h3>
+              <div style="font-size:0.76rem; color:var(--text-muted)">${w.mechanicSummary}</div>
+            </div>
+          </div>
+
+          <p style="font-size:0.9rem; color:var(--text-ivory); margin:8px 0">${w.tagline}</p>
+          <div style="margin:8px 0">${levelsHtml}</div>
+
+          ${
+            cat && evo
+              ? `<div class="evo-recipe-box">
+                  <span><img class="mini-icon-inline" src="${getWeaponIconUrl(w.id)}" alt="" /> <strong>${w.name} (Nv.5)</strong></span>
+                  <span>+</span>
+                  <span><img class="mini-icon-inline" src="${getRelicIconUrl(cat.id)}" alt="" /> <strong>${cat.name}</strong></span>
+                  <span>➔</span>
+                  <span><img class="mini-icon-inline" src="${getWeaponIconUrl(evo.id)}" alt="" /> <strong style="color:#ffe79e">★ ${evo.name}</strong></span>
+                </div>`
+              : fromBase && fromCat
+                ? `<div class="evo-recipe-box">
+                    <span>Desperta ao unir <img class="mini-icon-inline" src="${getWeaponIconUrl(fromBase.id)}" alt="" /> <strong>${fromBase.name} (Nv.5)</strong> + <img class="mini-icon-inline" src="${getRelicIconUrl(fromCat.id)}" alt="" /> <strong>${fromCat.name}</strong> em um Relicário Dourado.</span>
+                  </div>`
+                : ''
+          }
         </div>
-        <p class="codex-desc">${w.tagline}</p>
-        <p class="codex-desc" style="color:#b8a9b5; font-size:0.75rem">Como funciona: ${w.mechanicSummary}</p>
-        ${
-          evo && cat
-            ? `<div class="codex-formula">
-                <strong>Evolução (Baú no Nv.5):</strong> + ${cat.glyph} ${cat.name} ➔
-                <span style="color:${evo.iconColor}">${evo.glyph} ${evo.name}</span>
-                <div style="color:#d8ccd6; margin-top:2px">${evo.tagline}</div>
-              </div>`
-            : ''
-        }
       `;
-      weaponGrid.appendChild(card);
-    }
-    host.appendChild(weaponGrid);
-
-    const h2 = document.createElement('div');
-    h2.className = 'section-heading';
-    h2.textContent = 'Relíquias Passivas & Catalisadores (9)';
-    host.appendChild(h2);
-
-    const relicGrid = document.createElement('div');
-    relicGrid.className = 'codex-grid';
-
-    for (const rId of ALL_RELICS) {
-      const r = RELICS[rId];
+    } else {
+      const r = RELICS[this.inspectedPower.id];
       const synW = WEAPONS[r.synergyWeapon];
-      const card = document.createElement('div');
-      card.className = 'codex-card';
-      card.innerHTML = `
-        <div class="codex-card-head">
-          <h4 class="codex-title" style="color:${r.iconColor}">${r.glyph} ${r.name}</h4>
-          <span class="codex-cat">Máx Nv.${r.maxLevel}</span>
+      const evo = synW.evolvesInto ? WEAPONS[synW.evolvesInto] : null;
+      inspector.innerHTML = `
+        <div>
+          <div style="display:flex; align-items:center; gap:14px; margin-bottom:10px">
+            <div class="power-icon-tile selected" style="width:72px; height:72px; margin:0; cursor:default">
+              <img class="power-icon-img" src="${getRelicIconUrl(r.id)}" alt="${r.name}" />
+            </div>
+            <div>
+              <div style="font-size:0.72rem; color:#ffd166; text-transform:uppercase; font-weight:700">Relíquia Passiva · Máximo Grau ${r.maxLevel}</div>
+              <h3 style="font-family:var(--font-display); font-size:1.4rem; color:var(--gold-bright); margin:2px 0">${r.name}</h3>
+              <div style="font-size:0.76rem; color:var(--text-muted)">${r.tagline}</div>
+            </div>
+          </div>
+
+          <p style="font-size:0.92rem; color:var(--text-ivory); margin:12px 0">${r.bonusPerLevel}</p>
+
+          ${
+            evo
+              ? `<div class="evo-recipe-box">
+                  <span>Catalisa <img class="mini-icon-inline" src="${getWeaponIconUrl(synW.id)}" alt="" /> <strong>${synW.name} (Nv.5)</strong></span>
+                  <span>➔</span>
+                  <span><img class="mini-icon-inline" src="${getWeaponIconUrl(evo.id)}" alt="" /> <strong style="color:#ffe79e">★ ${evo.name}</strong></span>
+                </div>`
+              : ''
+          }
         </div>
-        <p class="codex-desc">${r.bonusPerLevel}</p>
-        <div class="codex-formula">Catalisador da arma: <strong>${synW.glyph} ${synW.name}</strong></div>
       `;
-      relicGrid.appendChild(card);
     }
-    host.appendChild(relicGrid);
+
+    body.append(matrix, inspector);
+    shell.appendChild(body);
+    menu.appendChild(shell);
   }
 
-  private populateLoreTab(host: HTMLElement): void {
-    const h1 = document.createElement('div');
-    h1.className = 'section-heading';
-    h1.textContent = 'O Mito do Eclipse Carmesim';
-    host.appendChild(h1);
+  private buildLoreScreen(menu: HTMLElement): void {
+    const shell = document.createElement('div');
+    shell.className = 'subscreen-shell';
 
-    const loreGrid = document.createElement('div');
-    loreGrid.className = 'codex-grid';
-    for (const ch of LORE_CHAPTERS) {
-      const card = document.createElement('div');
-      card.className = 'codex-card';
-      card.innerHTML = `
-        <h4 class="codex-title">${ch.title}</h4>
-        <div style="font-size:0.74rem; color:#ff9ebb; margin-bottom:6px">${ch.subtitle}</div>
-        <p class="codex-desc" style="font-family:var(--font-lore); font-size:0.98rem">${ch.body}</p>
+    const header = document.createElement('div');
+    header.className = 'subscreen-header';
+    const backBtn = document.createElement('button');
+    backBtn.type = 'button';
+    backBtn.className = 'btn-gothic secondary';
+    backBtn.textContent = '← Menu';
+    backBtn.addEventListener('click', () => {
+      this.currentScreen = 'splash';
+      this.renderMenu();
+    });
+    const title = document.createElement('h2');
+    title.className = 'subscreen-title';
+    title.textContent = 'Grimório da Véspera & Crônicas';
+    header.append(backBtn, title, document.createElement('div'));
+    shell.appendChild(header);
+
+    const entries: Array<{ title: string; subtitle: string; body: string; banner?: string }> = [
+      ...LORE_CHAPTERS.map((c) => ({ title: c.title, subtitle: c.subtitle, body: c.body })),
+      ...STAGES.map((s) => ({
+        title: `Fase ${s.roman} · ${s.name}`,
+        subtitle: s.subtitle,
+        body: s.lore,
+        banner: s.bannerUrl,
+      })),
+    ];
+
+    const body = document.createElement('div');
+    body.className = 'subscreen-body';
+
+    const roster = document.createElement('div');
+    roster.className = 'roster-list';
+    entries.forEach((ent, idx) => {
+      const slot = document.createElement('button');
+      slot.type = 'button';
+      slot.className = `roster-slot ${this.selectedLoreIndex === idx ? 'selected' : ''}`;
+      slot.innerHTML = `
+        <div>
+          <div class="roster-slot-name">${ent.title}</div>
+          <div class="roster-slot-sub">${ent.subtitle}</div>
+        </div>
       `;
-      loreGrid.appendChild(card);
-    }
-    host.appendChild(loreGrid);
+      slot.addEventListener('click', () => {
+        this.selectedLoreIndex = idx;
+        this.renderMenu();
+      });
+      roster.appendChild(slot);
+    });
 
-    const h2 = document.createElement('div');
-    h2.className = 'section-heading';
-    h2.textContent = 'Atlas das Sete Regiões Amaldiçoadas';
-    host.appendChild(h2);
+    const chosen = entries[this.selectedLoreIndex] ?? entries[0];
+    const page = document.createElement('div');
+    page.className = 'showcase-panel codex-card';
+    page.innerHTML = `
+      <div>
+        ${
+          chosen.banner
+            ? `<div class="stage-cinema-banner" style="margin-bottom:12px"><img src="${chosen.banner}" alt="${chosen.title}" /></div>`
+            : ''
+        }
+        <h3 style="font-family:var(--font-display); font-size:1.35rem; color:var(--gold-bright); margin:0 0 4px">${chosen.title}</h3>
+        <div style="font-size:0.8rem; color:#ff9ebb; margin-bottom:12px">${chosen.subtitle}</div>
+        <p style="font-family:var(--font-lore); font-size:1.12rem; line-height:1.5; color:#ebe1e9; margin:0">${chosen.body}</p>
+      </div>
+    `;
 
-    const atlasGrid = document.createElement('div');
-    atlasGrid.className = 'codex-grid';
-    for (const st of STAGES) {
-      const card = document.createElement('div');
-      card.className = 'codex-card';
-      card.innerHTML = `
-        <h4 class="codex-title">Fase ${st.roman} · ${st.name}</h4>
-        <div style="font-size:0.73rem; color:#ffd166; margin-bottom:5px">${st.subtitle}</div>
-        <p class="codex-desc" style="font-family:var(--font-lore); font-size:0.96rem">${st.lore}</p>
-      `;
-      atlasGrid.appendChild(card);
-    }
-    host.appendChild(atlasGrid);
+    body.append(roster, page);
+    shell.appendChild(body);
+    menu.appendChild(shell);
   }
 
   private beginArenaRun(): void {
@@ -457,6 +825,7 @@ export class UIManager {
   }
 
   private mountHudDom(): void {
+    this.lastRenderedScreen = null;
     const hud = document.createElement('div');
     hud.className = 'hud-root';
     hud.dataset.testid = 'arena-hud';
@@ -475,13 +844,15 @@ export class UIManager {
 
         <div class="clock-panel">
           <div class="clock-time" data-clock-time>00:00</div>
-          <div class="clock-phase" data-clock-phase>Fase I</div>
+          <div class="clock-phase" data-clock-phase>Fase I · Ato I</div>
         </div>
 
         <div class="stats-right">
           <div class="stat-pill">☠ <strong data-kills>0</strong></div>
           <div class="stat-pill">✦ <strong data-souls>0</strong></div>
-          <button type="button" class="hud-icon-btn" data-mute-btn>${gothicAudio.isMuted() ? '🔇' : '🔊'}</button>
+          <button type="button" class="hud-icon-btn" data-hud-fs title="Tela Cheia Deitada">⛶</button>
+          <button type="button" class="hud-icon-btn" data-hud-bgm title="Música">${gothicSoundtrack.isMuted() ? '🎵✕' : '🎵'}</button>
+          <button type="button" class="hud-icon-btn" data-mute-btn title="Efeitos">${gothicAudio.isMuted() ? '🔇' : '🔊'}</button>
           <button type="button" class="hud-icon-btn" data-pause-btn data-testid="pause-btn">❚❚</button>
         </div>
       </div>
@@ -528,6 +899,16 @@ export class UIManager {
     this.bossFillEl = hud.querySelector('[data-boss-fill]');
     this.modalHostEl = hud.querySelector('[data-modal-host]');
 
+    hud.querySelector('[data-hud-fs]')?.addEventListener('click', () => {
+      this.viewport.toggleFullscreenLandscape();
+    });
+
+    const bgmBtn = hud.querySelector('[data-hud-bgm]') as HTMLButtonElement;
+    bgmBtn.addEventListener('click', () => {
+      const m = gothicSoundtrack.toggleMute();
+      bgmBtn.textContent = m ? '🎵✕' : '🎵';
+    });
+
     const muteBtn = hud.querySelector('[data-mute-btn]') as HTMLButtonElement;
     muteBtn.addEventListener('click', () => {
       const m = gothicAudio.toggleMute();
@@ -554,11 +935,12 @@ export class UIManager {
     let activePointerId: number | null = null;
     let originX = 0;
     let originY = 0;
-    const maxRadius = 42;
+    const maxRadius = 40;
 
     const updateMove = (ev: PointerEvent) => {
-      let dx = ev.clientX - originX;
-      let dy = ev.clientY - originY;
+      const pt = this.viewport.mapClientToLogical(ev.clientX, ev.clientY);
+      let dx = pt.x - originX;
+      let dy = pt.y - originY;
       const dist = Math.hypot(dx, dy);
       if (dist > maxRadius) {
         dx = (dx / dist) * maxRadius;
@@ -578,8 +960,9 @@ export class UIManager {
     surface.addEventListener('pointerdown', (ev) => {
       if (activePointerId !== null) return;
       activePointerId = ev.pointerId;
-      originX = ev.clientX;
-      originY = ev.clientY;
+      const pt = this.viewport.mapClientToLogical(ev.clientX, ev.clientY);
+      originX = pt.x;
+      originY = pt.y;
       ring.style.left = `${originX}px`;
       ring.style.top = `${originY}px`;
       ring.classList.add('active');
@@ -604,9 +987,11 @@ export class UIManager {
     const xpPct = Math.min(100, Math.round((snap.xp / Math.max(1, snap.xpToNext)) * 100));
     if (this.xpFillEl) this.xpFillEl.style.width = `${xpPct}%`;
     if (this.xpLevelEl) this.xpLevelEl.textContent = `NV ${snap.level}`;
-    if (this.clockTimeEl) this.clockTimeEl.textContent = formatClock(snap.elapsedSeconds);
+    if (this.clockTimeEl) {
+      this.clockTimeEl.textContent = `${formatClock(snap.elapsedSeconds)} / 40:00`;
+    }
     if (this.clockPhaseEl) {
-      this.clockPhaseEl.textContent = `Fase ${snap.stageRoman} · ${snap.stageName}`;
+      this.clockPhaseEl.textContent = `Fase ${snap.stageRoman} · ${snap.actName}`;
     }
     if (this.killsEl) this.killsEl.textContent = `${snap.kills}`;
     if (this.soulsEl) this.soulsEl.textContent = `${snap.souls}`;
@@ -615,6 +1000,7 @@ export class UIManager {
       this.dashBtnEl.style.opacity = snap.dashReadyRatio >= 1 ? '1' : '0.45';
     }
 
+    // Redesigned Illustrated HUD Power Rack (6 Weapons + 6 Relics)
     if (this.weaponRowEl) {
       const entries = Object.entries(snap.inventory.weapons) as Array<[WeaponId, number]>;
       let html = '';
@@ -623,14 +1009,19 @@ export class UIManager {
         if (entry) {
           const [wId, lv] = entry;
           const def = WEAPONS[wId];
+          const readyEvo =
+            !def.isEvolved &&
+            lv >= def.maxLevel &&
+            Boolean(def.catalystRelic && (snap.inventory.relics[def.catalystRelic] ?? 0) > 0);
+          const stateCls = def.isEvolved ? 'evolved' : readyEvo ? 'ready-evolve' : '';
           html += `
-            <div class="item-slot ${def.isEvolved ? 'evolved' : ''}" title="${def.name}">
-              <span style="color:${def.iconColor}">${def.glyph}</span>
-              <span class="slot-lvl">${def.isEvolved ? '★' : `Nv${lv}`}</span>
+            <div class="item-slot ${stateCls}" title="${def.name}">
+              <img class="slot-icon-img" src="${getWeaponIconUrl(wId)}" alt="${def.name}" />
+              ${def.isEvolved ? '<span class="slot-evo-badge">★</span>' : renderLevelPips(lv, def.maxLevel)}
             </div>
           `;
         } else {
-          html += `<div class="item-slot" style="opacity:0.28"></div>`;
+          html += `<div class="item-slot empty"></div>`;
         }
       }
       this.weaponRowEl.innerHTML = html;
@@ -646,12 +1037,12 @@ export class UIManager {
           const def = RELICS[rId];
           html += `
             <div class="item-slot" title="${def.name}">
-              <span style="color:${def.iconColor}">${def.glyph}</span>
-              <span class="slot-lvl">Nv${lv}</span>
+              <img class="slot-icon-img" src="${getRelicIconUrl(rId)}" alt="${def.name}" />
+              ${renderLevelPips(lv, def.maxLevel)}
             </div>
           `;
         } else {
-          html += `<div class="item-slot" style="opacity:0.22"></div>`;
+          html += `<div class="item-slot empty"></div>`;
         }
       }
       this.relicRowEl.innerHTML = html;
@@ -678,7 +1069,7 @@ export class UIManager {
     if (this.bannerTimeout !== null) window.clearTimeout(this.bannerTimeout);
     this.bannerTimeout = window.setTimeout(() => {
       this.bannerEl?.classList.remove('visible');
-    }, 3400);
+    }, 3600);
   }
 
   private clearKeyPickHandler(): void {
@@ -703,7 +1094,7 @@ export class UIManager {
     panel.className = 'modal-panel';
     panel.innerHTML = `
       <h2 class="modal-title">Ascensão de Éter</h2>
-      <p class="modal-subtitle">Escolha uma dádiva sagrada para fortalecer sua vigília</p>
+      <p class="modal-subtitle">Escolha uma dádiva sagrada (Teclas 1–${choices.length} ou toque)</p>
     `;
 
     const list = document.createElement('div');
@@ -720,15 +1111,17 @@ export class UIManager {
       card.type = 'button';
       card.className = 'upgrade-card';
       card.dataset.testid = `upgrade-option-${idx}`;
-      const glyph = c.weaponId
-        ? WEAPONS[c.weaponId].glyph
-        : c.relicId
-          ? RELICS[c.relicId].glyph
-          : '✦';
 
       card.innerHTML = `
-        <span class="upgrade-badge" style="color:${c.accentColor}">[${idx + 1}] ${c.subtitle}</span>
-        <h3 class="upgrade-name">${glyph} ${c.title}</h3>
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px">
+          <div class="power-icon-tile" style="width:46px; height:46px; margin:0; flex-shrink:0; pointer-events:none">
+            <img class="power-icon-img" src="${c.iconUrl}" alt="${c.title}" />
+          </div>
+          <div>
+            <span class="upgrade-badge" style="color:${c.accentColor}; margin-bottom:2px">[${idx + 1}] ${c.subtitle}</span>
+            <h3 class="upgrade-name" style="margin:0">${c.title}</h3>
+          </div>
+        </div>
         <p class="upgrade-desc">${c.description}</p>
         ${c.synergyHint ? `<div class="upgrade-synergy">${c.synergyHint}</div>` : ''}
       `;
@@ -755,19 +1148,15 @@ export class UIManager {
     backdrop.className = 'modal-backdrop';
     backdrop.dataset.testid = 'chest-modal';
 
-    const glyph = reward.weaponId
-      ? WEAPONS[reward.weaponId].glyph
-      : reward.relicId
-        ? RELICS[reward.relicId].glyph
-        : '✦';
-
     backdrop.innerHTML = `
-      <div class="modal-panel" style="max-width:460px">
+      <div class="modal-panel" style="max-width:440px">
         <h2 class="modal-title">Relicário Dourado Aberto</h2>
         <p class="modal-subtitle">${reward.subtitle}</p>
-        <div class="upgrade-card" style="cursor:default; margin-bottom:18px; text-align:center">
-          <div style="font-size:2.3rem; margin-bottom:6px">${glyph}</div>
-          <h3 class="upgrade-name" style="font-size:1.25rem">${reward.title}</h3>
+        <div class="upgrade-card" style="cursor:default; margin-bottom:14px; text-align:center">
+          <div class="power-icon-tile ${reward.kind === 'evolution' ? 'evolved-tile' : ''} selected" style="width:78px; height:78px; margin:0 auto 10px; pointer-events:none">
+            <img class="power-icon-img" src="${reward.iconUrl}" alt="${reward.title}" />
+          </div>
+          <h3 class="upgrade-name" style="font-size:1.2rem">${reward.title}</h3>
           <p class="upgrade-desc">${reward.description}</p>
         </div>
         <button type="button" class="btn-gothic" data-claim-chest>Reivindicar Poder</button>
@@ -792,11 +1181,12 @@ export class UIManager {
     backdrop.className = 'modal-backdrop';
     backdrop.dataset.testid = 'pause-modal';
     backdrop.innerHTML = `
-      <div class="modal-panel" style="max-width:400px">
+      <div class="modal-panel" style="max-width:380px">
         <h2 class="modal-title">Vigília Suspensa</h2>
         <p class="modal-subtitle">A Névoa Rubra aguarda no escuro.</p>
-        <div style="display:flex; flex-direction:column; gap:12px">
+        <div style="display:flex; flex-direction:column; gap:10px">
           <button type="button" class="btn-gothic" data-resume-btn>Retomar Vigília</button>
+          <button type="button" class="btn-gothic secondary" data-fs-pause-btn>⛶ Alternar Tela Cheia (Deitada)</button>
           <button type="button" class="btn-gothic secondary" data-quit-btn>Sair e retornar ao menu</button>
         </div>
       </div>
@@ -805,6 +1195,9 @@ export class UIManager {
     backdrop.querySelector('[data-resume-btn]')?.addEventListener('click', () => {
       backdrop.remove();
       this.onResumeFromPause();
+    });
+    backdrop.querySelector('[data-fs-pause-btn]')?.addEventListener('click', () => {
+      this.viewport.toggleFullscreenLandscape();
     });
     backdrop.querySelector('[data-quit-btn]')?.addEventListener('click', () => {
       this.transitionWithCurtain(() => {
@@ -830,14 +1223,14 @@ export class UIManager {
     backdrop.dataset.testid = 'summary-modal';
 
     backdrop.innerHTML = `
-      <div class="modal-panel" style="max-width:520px">
-        <h2 class="modal-title" style="color:${summary.victory ? '#ffe599' : '#ff4d6d'}">
+      <div class="modal-panel" style="max-width:500px">
+        <h2 class="modal-title" style="color:${summary.victory ? '#ffe79e' : '#ff4d6d'}">
           ${summary.victory ? `FASE ${currentStage.roman} PURIFICADA!` : 'CONSUMIDO PELO ECLIPSE'}
         </h2>
         <p class="modal-subtitle">${hero.name} · ${currentStage.name}</p>
 
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:20px; text-align:left">
-          <div class="stat-pill">Tempo: <strong>${formatClock(summary.elapsedSeconds)}</strong></div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:16px; text-align:left">
+          <div class="stat-pill">Tempo: <strong>${formatClock(summary.elapsedSeconds)} / 40:00</strong></div>
           <div class="stat-pill">Nível: <strong>${summary.level}</strong></div>
           <div class="stat-pill">Abates: <strong>${summary.kills}</strong></div>
           <div class="stat-pill">Almas: <strong>${summary.souls}</strong></div>
@@ -846,11 +1239,11 @@ export class UIManager {
         <div style="display:flex; gap:10px; justify-content:center; flex-wrap:wrap">
           ${
             summary.victory && nextStage
-              ? `<button type="button" class="btn-gothic" data-next-stage-btn>Avançar: Fase ${nextStage.roman} (${nextStage.name})</button>`
+              ? `<button type="button" class="btn-gothic" data-next-stage-btn>Avançar: Fase ${nextStage.roman}</button>`
               : ''
           }
           <button type="button" class="btn-gothic ${summary.victory && nextStage ? 'secondary' : ''}" data-retry-btn>Repetir Fase</button>
-          <button type="button" class="btn-gothic secondary" data-menu-btn>Mapa das 7 Fases</button>
+          <button type="button" class="btn-gothic secondary" data-menu-btn>Sair e retornar ao menu</button>
         </div>
       </div>
     `;
