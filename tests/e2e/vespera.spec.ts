@@ -69,8 +69,96 @@ test('verifies reworked game menu, 27 custom power icons, 40-min arena HUD, and 
   await page.locator('[data-quit-btn]').click();
   await expect(page.getByTestId('title-screen')).toBeVisible({ timeout: 5000 });
 
-  // 4. Mobile Portrait (390x844) -> Fullscreen Landscape ("visão de tela deitada")
+  // 4. Native Mobile Landscape (844x390 — exact smartphone landscape viewport) + Wide Field-of-View + Multitouch Dash!
+  await page.waitForTimeout(420);
+  await page.setViewportSize({ width: 844, height: 390 });
+  await page.getByTestId('menu-play-btn').click();
+  await page.getByTestId('hero-card-seraphina').click();
+  await page.getByTestId('go-stage-select-btn').click();
+  await page.getByTestId('stage-card-forest').click();
+  await page.getByTestId('start-run-btn').click();
+
+  await expect(page.getByTestId('arena-hud')).toBeVisible({ timeout: 5000 });
+  await page.waitForTimeout(700);
+
+  // Verify canvas world resolution scaled to wide tactical FOV (~1861x860) while CSS fills 100% of 844x390!
+  const canvasMetrics = await page.locator('#phaser-container canvas').evaluate((el) => {
+    const c = el as HTMLCanvasElement;
+    const r = c.getBoundingClientRect();
+    return { worldW: c.width, worldH: c.height, cssW: Math.round(r.width), cssH: Math.round(r.height) };
+  });
+  expect(canvasMetrics.worldH).toBeGreaterThanOrEqual(840);
+  expect(canvasMetrics.worldW).toBeGreaterThanOrEqual(1800);
+  expect(canvasMetrics.cssW).toBe(844);
+  expect(canvasMetrics.cssH).toBe(390);
+
+  // Verify TWO-THUMB MULTITOUCH: Left thumb holds floating joystick (pointerId=1) while Right thumb taps PASSO ESPECTRAL (pointerId=2)!
+  await page.evaluate(() => {
+    const surface = document.querySelector('[data-touch-surface]')!;
+    const dashBtn = document.querySelector('[data-testid="dash-btn"]')!;
+    surface.dispatchEvent(
+      new PointerEvent('pointerdown', {
+        bubbles: true,
+        pointerId: 1,
+        isPrimary: true,
+        pointerType: 'touch',
+        clientX: 160,
+        clientY: 260,
+      })
+    );
+    surface.dispatchEvent(
+      new PointerEvent('pointermove', {
+        bubbles: true,
+        pointerId: 1,
+        isPrimary: true,
+        pointerType: 'touch',
+        clientX: 210,
+        clientY: 245,
+      })
+    );
+    dashBtn.dispatchEvent(
+      new PointerEvent('pointerdown', {
+        bubbles: true,
+        cancelable: true,
+        pointerId: 2,
+        isPrimary: false,
+        pointerType: 'touch',
+        clientX: 790,
+        clientY: 340,
+      })
+    );
+  });
+
+  await page.waitForTimeout(120);
+  await expect(page.getByTestId('dash-btn')).not.toHaveClass(/\bready\b/);
+  await expect(page.locator('[data-dash-label]')).toContainText('s');
+  await page.screenshot({ path: 'test-results/preview-mobile-native-landscape.png' });
+
+  // Release left thumb and return to menu
+  await page.evaluate(() => {
+    const surface = document.querySelector('[data-touch-surface]')!;
+    surface.dispatchEvent(
+      new PointerEvent('pointerup', {
+        bubbles: true,
+        pointerId: 1,
+        isPrimary: true,
+        pointerType: 'touch',
+      })
+    );
+  });
+
+  await page.getByTestId('pause-btn').click();
+  await expect(page.getByTestId('pause-modal')).toBeVisible();
+  await page.locator('[data-quit-btn]').click();
+  await expect(page.getByTestId('title-screen')).toBeVisible({ timeout: 5000 });
+  await page.waitForTimeout(420);
+
+  // 5. Mobile Portrait (390x844) -> Automatic & Toggled Forced CSS Landscape ("visão de tela deitada")
   await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('#game-root')).toHaveClass(/forced-landscape/);
+  // Toggle off and back on via fullscreen button to verify manual toggle too
+  await page.getByTestId('fullscreen-btn').click();
+  await expect(page.locator('#game-root')).not.toHaveClass(/forced-landscape/);
   await page.getByTestId('fullscreen-btn').click();
   await expect(page.locator('#game-root')).toHaveClass(/forced-landscape/);
   await page.screenshot({ path: 'test-results/preview-mobile-landscape-menu.png' });

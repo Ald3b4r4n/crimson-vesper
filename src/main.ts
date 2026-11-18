@@ -10,7 +10,7 @@ const phaserContainer = document.getElementById('phaser-container')!;
 const uiLayer = document.getElementById('ui-layer')!;
 
 const viewport = new ViewportManager(gameRoot);
-const initialSize = viewport.getLogicalSize();
+const initialWorldSize = viewport.getWorldSize();
 const arenaScene = new ArenaScene();
 
 const game = new Phaser.Game({
@@ -19,8 +19,8 @@ const game = new Phaser.Game({
   backgroundColor: '#07040a',
   scale: {
     mode: Phaser.Scale.NONE,
-    width: initialSize.width,
-    height: initialSize.height,
+    width: initialWorldSize.width,
+    height: initialWorldSize.height,
   },
   render: {
     antialias: true,
@@ -32,7 +32,7 @@ const game = new Phaser.Game({
 game.scene.add('ArenaScene', arenaScene, false);
 
 viewport.onChange(() => {
-  const sz = viewport.getLogicalSize();
+  const sz = viewport.getWorldSize();
   game.scale.resize(sz.width, sz.height);
 });
 
@@ -42,7 +42,7 @@ function getActiveArena(): ArenaScene | null {
 
 new UIManager(uiLayer, viewport, {
   onStartRun: (heroId: HeroId, stageId: StageId, callbacks: ArenaCallbacks) => {
-    const sz = viewport.getLogicalSize();
+    const sz = viewport.getWorldSize();
     game.scale.resize(sz.width, sz.height);
     arenaScene.configureRun(heroId, stageId, callbacks);
     if (game.scene.isActive('ArenaScene') || game.scene.isPaused('ArenaScene')) {
@@ -54,7 +54,7 @@ new UIManager(uiLayer, viewport, {
     getActiveArena()?.setVirtualJoystick(dx, dy);
   },
   onTriggerDash: () => {
-    getActiveArena()?.triggerDash();
+    return getActiveArena()?.triggerDash() ?? false;
   },
   onTogglePause: () => {
     getActiveArena()?.toggleUserPause();

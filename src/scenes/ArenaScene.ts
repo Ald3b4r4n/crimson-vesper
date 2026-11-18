@@ -41,6 +41,7 @@ export interface HudSnapshot {
   kills: number;
   souls: number;
   dashReadyRatio: number;
+  dashCooldownRemaining: number;
   stageName: string;
   stageRoman: string;
   actNumber: 1 | 2 | 3 | 4;
@@ -291,17 +292,38 @@ export class ArenaScene extends Phaser.Scene {
     this.virtualMoveY = dy;
   }
 
-  triggerDash(): void {
-    if (this.isSimulationPaused() || this.dashCooldownTimer > 0) return;
-    this.dashCooldownTimer = 2.6;
-    this.dashActiveTimer = 0.22;
-    this.invulnTimer = Math.max(this.invulnTimer, 0.34);
+  triggerDash(): boolean {
+    if (this.isSimulationPaused() || this.dashCooldownTimer > 0) return false;
+
+    // Immediately align dash direction with live joystick/keyboard input if held right now
+    let liveX = this.virtualMoveX;
+    let liveY = this.virtualMoveY;
+    if (this.cursors && this.wasd) {
+      if (this.cursors.left.isDown || this.wasd.A.isDown) liveX -= 1;
+      if (this.cursors.right.isDown || this.wasd.D.isDown) liveX += 1;
+      if (this.cursors.up.isDown || this.wasd.W.isDown) liveY -= 1;
+      if (this.cursors.down.isDown || this.wasd.S.isDown) liveY += 1;
+    }
+    const liveLen = Math.hypot(liveX, liveY);
+    if (liveLen > 0.08) {
+      this.aimX = liveX / liveLen;
+      this.aimY = liveY / liveLen;
+      if (Math.abs(this.aimX) > 0.08) {
+        this.facing = this.aimX >= 0 ? 1 : -1;
+      }
+    }
+
+    this.dashCooldownTimer = 2.4;
+    this.dashActiveTimer = 0.26;
+    this.invulnTimer = Math.max(this.invulnTimer, 0.42);
 
     this.dashDirX = this.aimX;
     this.dashDirY = this.aimY;
 
     gothicAudio.playDash();
-    this.spawnRingBurst(this.heroX, this.heroY, HEROES[this.heroId].accentColor, 14);
+    this.spawnRingBurst(this.heroX, this.heroY, HEROES[this.heroId].accentColor, 16);
+    this.pushHudUpdate();
+    return true;
   }
 
   toggleUserPause(): boolean {
@@ -491,6 +513,9 @@ export class ArenaScene extends Phaser.Scene {
     const h = gameSize.height;
     if (this.groundBg && this.groundBg.scene) {
       this.groundBg.setPosition(w / 2, h / 2).setSize(w + 512, h + 512);
+    }
+    if (this.roadBg && this.roadBg.scene) {
+      this.roadBg.setSize(180, h + 512);
     }
     if (this.ambientOverlay && this.ambientOverlay.scene) {
       this.ambientOverlay.setPosition(w / 2, h / 2).setSize(w + 64, h + 64);
@@ -706,17 +731,29 @@ export class ArenaScene extends Phaser.Scene {
 
     if (this.dashActiveTimer > 0) {
       this.dashActiveTimer -= dt;
-      const dashSpeed = this.stats.moveSpeed * 2.85;
+      const dashSpeed = this.stats.moveSpeed * 3.55;
       this.heroVx = this.dashDirX * dashSpeed;
       this.heroVy = this.dashDirY * dashSpeed;
 
-      if (Math.random() < 0.65) {
+      // Spectral phase wake: push nearby monsters aside while phasing through them!
+      const wakeEnemies = this.grid.queryRadius(this.heroX, this.heroY, 48);
+      for (const enemy of wakeEnemies) {
+        if (!enemy.def.isBoss) {
+          const pdx = enemy.x - this.heroX;
+          const pdy = enemy.y - this.heroY;
+          const pd = Math.hypot(pdx, pdy) || 1;
+          enemy.knockVx = (pdx / pd) * 220;
+          enemy.knockVy = (pdy / pd) * 220;
+        }
+      }
+
+      if (Math.random() < 0.8) {
         const ghost = this.add
           .image(this.heroX, this.heroY, `hero_${this.heroId}`, this.heroSprite.frame.name)
           .setScale(this.heroSprite.scaleX, this.heroSprite.scaleY)
           .setFlipX(this.heroSprite.flipX)
           .setTint(HEROES[this.heroId].accentColor)
-          .setAlpha(0.55)
+          .setAlpha(0.62)
           .setDepth(ySortDepth(this.heroY, -0.01))
           .setBlendMode(Phaser.BlendModes.ADD);
         this.tweens.add({
@@ -724,7 +761,7 @@ export class ArenaScene extends Phaser.Scene {
           alpha: 0,
           scaleX: ghost.scaleX * 0.85,
           scaleY: ghost.scaleY * 0.85,
-          duration: 240,
+          duration: 260,
           onComplete: () => ghost.destroy(),
         });
       }
@@ -826,7 +863,7 @@ export class ArenaScene extends Phaser.Scene {
     this.roadBg.setPosition(roadScreenX, cam.height / 2);
     this.roadBg.tilePositionY = cam.scrollY;
 
-    const wrapRange = 1300;
+    const wrapRange = Math.max(1350, Math.ceil(Math.max(cam.width, cam.height) * 0.62) + 220);
 
     // 1. Wrap Ruins + Canopy Occlusion Fade when hero walks behind a tall ruin!
     for (let i = 0; i < this.ruins.length; i++) {
@@ -939,7 +976,8 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private updateBreakablesAndPickups(time: number, dt: number): void {
-    const wrapRange = 1180;
+    const cam = this.cameras.main;
+    const wrapRange = Math.max(1220, Math.ceil(Math.max(cam.width, cam.height) * 0.6) + 180);
 
     for (let i = 0; i < this.breakables.length; i++) {
       const b = this.breakables[i];
@@ -2104,6 +2142,8 @@ export class ArenaScene extends Phaser.Scene {
 
   private updateEnemies(time: number, dt: number): void {
     const esc = this.getActEscalation();
+    const cam = this.cameras.main;
+    const maxEnemyDist = Math.hypot(cam.width, cam.height) * 0.62 + 180;
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const e = this.enemies[i];
       if (!e.active) {
@@ -2115,10 +2155,10 @@ export class ArenaScene extends Phaser.Scene {
       const dxHero = this.heroX - e.x;
       const dyHero = this.heroY - e.y;
       const distHero = Math.hypot(dxHero, dyHero) || 1;
-      if (!e.def.isBoss && distHero > 1050) {
+      if (!e.def.isBoss && distHero > maxEnemyDist) {
         const angle = Math.random() * Math.PI * 2;
-        e.x = this.heroX + Math.cos(angle) * 620;
-        e.y = this.heroY + Math.sin(angle) * 460;
+        e.x = this.heroX + Math.cos(angle) * (cam.width / 2 + 68);
+        e.y = this.heroY + Math.sin(angle) * (cam.height / 2 + 68);
         continue;
       }
 
@@ -2683,7 +2723,8 @@ export class ArenaScene extends Phaser.Scene {
       stageDurationSeconds: this.stageDef.durationSeconds,
       kills: this.kills,
       souls: this.inventory.souls,
-      dashReadyRatio: 1 - Phaser.Math.Clamp(this.dashCooldownTimer / 2.6, 0, 1),
+      dashReadyRatio: 1 - Phaser.Math.Clamp(this.dashCooldownTimer / 2.4, 0, 1),
+      dashCooldownRemaining: Math.max(0, this.dashCooldownTimer),
       stageName: this.stageDef.name,
       stageRoman: this.stageDef.roman,
       actNumber: esc.act,

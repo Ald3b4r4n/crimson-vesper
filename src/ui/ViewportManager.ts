@@ -11,6 +11,9 @@ interface WebkitFullscreenDocument extends Document {
   webkitFullscreenElement?: Element | null;
 }
 
+const MIN_WORLD_SHORT_SIDE = 860;
+const MAX_WORLD_LONG_SIDE = 2240;
+
 export class ViewportManager {
   private forcedLandscape = false;
   private readonly listeners = new Set<() => void>();
@@ -19,16 +22,19 @@ export class ViewportManager {
   constructor(gameRoot: HTMLElement) {
     this.gameRoot = gameRoot;
 
-    const sync = () => this.applyLayout();
-    window.addEventListener('resize', sync);
-    window.addEventListener('orientationchange', sync);
-    document.addEventListener('fullscreenchange', () => {
-      if (!this.isNativeFullscreen()) {
-        // Keep forcedLandscape only if user explicitly toggled it while non-fullscreen,
-        // otherwise sync cleanly
-      }
+    const sync = () => {
       this.applyLayout();
-    });
+    };
+    const delayedSync = () => {
+      this.applyLayout();
+      window.setTimeout(() => this.applyLayout(), 120);
+      window.setTimeout(() => this.applyLayout(), 320);
+    };
+
+    window.addEventListener('resize', sync);
+    window.addEventListener('orientationchange', delayedSync);
+    window.visualViewport?.addEventListener('resize', sync);
+    document.addEventListener('fullscreenchange', delayedSync);
   }
 
   onChange(fn: () => void): () => void {
@@ -36,9 +42,17 @@ export class ViewportManager {
     return () => this.listeners.delete(fn);
   }
 
+  private getRawViewport(): { width: number; height: number } {
+    const vv = window.visualViewport;
+    const w = Math.round(vv?.width || window.innerWidth || 800);
+    const h = Math.round(vv?.height || window.innerHeight || 600);
+    return { width: Math.max(240, w), height: Math.max(240, h) };
+  }
+
   isMobileViewport(): boolean {
     const touch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-    return touch || Math.min(window.innerWidth, window.innerHeight) <= 540;
+    const { width, height } = this.getRawViewport();
+    return touch || Math.min(width, height) <= 540;
   }
 
   isNativeFullscreen(): boolean {
@@ -51,21 +65,42 @@ export class ViewportManager {
   }
 
   isCssRotated(): boolean {
-    return this.forcedLandscape && window.innerHeight > window.innerWidth;
+    const { width, height } = this.getRawViewport();
+    return this.forcedLandscape && height > width;
   }
 
   getLogicalSize(): { width: number; height: number } {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    if (this.isCssRotated()) {
+    const { width: w, height: h } = this.getRawViewport();
+    if (this.forcedLandscape && h > w) {
       return { width: h, height: w };
     }
     return { width: w, height: h };
   }
 
+  /**
+   * Computes a tactical world resolution that preserves the exact screen aspect ratio
+   * while guaranteeing a wide Vampire-Survivors field of view on compact mobile screens
+   * (so heroes/enemies never look zoomed-in or oversized on 844x390 phones).
+   */
+  getWorldSize(): { width: number; height: number } {
+    const { width: cssW, height: cssH } = this.getLogicalSize();
+    const shortSide = Math.min(cssW, cssH);
+    let scale = shortSide < MIN_WORLD_SHORT_SIDE ? MIN_WORLD_SHORT_SIDE / shortSide : 1;
+
+    const longSide = Math.max(cssW, cssH);
+    if (longSide * scale > MAX_WORLD_LONG_SIDE) {
+      scale = MAX_WORLD_LONG_SIDE / longSide;
+    }
+
+    return {
+      width: Math.round(cssW * scale),
+      height: Math.round(cssH * scale),
+    };
+  }
+
   mapClientToLogical(clientX: number, clientY: number): { x: number; y: number } {
     if (this.isCssRotated()) {
-      const w = window.innerWidth;
+      const { width: w } = this.getRawViewport();
       return {
         x: clientY,
         y: w - clientX,
@@ -134,9 +169,16 @@ export class ViewportManager {
 
   applyLayout(): void {
     if (this.isCssRotated()) {
+      const { width: w, height: h } = this.getRawViewport();
       this.gameRoot.classList.add('forced-landscape');
+      this.gameRoot.style.width = `${h}px`;
+      this.gameRoot.style.height = `${w}px`;
+      this.gameRoot.style.transform = `translateX(${w}px) rotate(90deg)`;
     } else {
       this.gameRoot.classList.remove('forced-landscape');
+      this.gameRoot.style.width = '';
+      this.gameRoot.style.height = '';
+      this.gameRoot.style.transform = '';
     }
     for (const fn of this.listeners) {
       fn();

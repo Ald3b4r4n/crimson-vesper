@@ -61,7 +61,7 @@ export class UIManager {
 
   private onStartRun: (heroId: HeroId, stageId: StageId, callbacks: ArenaCallbacks) => void;
   private onSetVirtualJoystick: (dx: number, dy: number) => void;
-  private onTriggerDash: () => void;
+  private onTriggerDash: () => boolean;
   private onTogglePause: () => void;
   private onResumeFromPause: () => void;
   private onStopArena: () => void;
@@ -77,6 +77,7 @@ export class UIManager {
   private killsEl: HTMLElement | null = null;
   private soulsEl: HTMLElement | null = null;
   private dashBtnEl: HTMLButtonElement | null = null;
+  private dashLabelEl: HTMLElement | null = null;
   private bannerEl: HTMLElement | null = null;
   private bannerTitleEl: HTMLElement | null = null;
   private bannerSubEl: HTMLElement | null = null;
@@ -93,7 +94,7 @@ export class UIManager {
     hooks: {
       onStartRun: (heroId: HeroId, stageId: StageId, callbacks: ArenaCallbacks) => void;
       onSetVirtualJoystick: (dx: number, dy: number) => void;
-      onTriggerDash: () => void;
+      onTriggerDash: () => boolean;
       onTogglePause: () => void;
       onResumeFromPause: () => void;
       onStopArena: () => void;
@@ -874,8 +875,8 @@ export class UIManager {
         <div class="floating-joystick-knob" data-floating-knob></div>
       </div>
 
-      <button type="button" class="dash-btn" data-dash-btn title="Passo Espectral (Espaço)">
-        PASSO<br/>ESPECTRAL
+      <button type="button" class="dash-btn ready" data-dash-btn data-testid="dash-btn" title="Passo Espectral (Espaço)">
+        <span class="dash-btn-inner" data-dash-label>PASSO<br/>ESPECTRAL</span>
       </button>
 
       <div data-modal-host></div>
@@ -891,6 +892,7 @@ export class UIManager {
     this.killsEl = hud.querySelector('[data-kills]');
     this.soulsEl = hud.querySelector('[data-souls]');
     this.dashBtnEl = hud.querySelector('[data-dash-btn]');
+    this.dashLabelEl = hud.querySelector('[data-dash-label]');
     this.bannerEl = hud.querySelector('[data-banner]');
     this.bannerTitleEl = hud.querySelector('[data-banner-title]');
     this.bannerSubEl = hud.querySelector('[data-banner-sub]');
@@ -899,29 +901,61 @@ export class UIManager {
     this.bossFillEl = hud.querySelector('[data-boss-fill]');
     this.modalHostEl = hud.querySelector('[data-modal-host]');
 
-    hud.querySelector('[data-hud-fs]')?.addEventListener('click', () => {
+    const bindMultitouchTap = (btn: Element | null, action: () => void) => {
+      if (!btn) return;
+      let lastTriggerAt = 0;
+      const fire = (ev: Event) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const now = performance.now();
+        if (now - lastTriggerAt < 80) return;
+        lastTriggerAt = now;
+        action();
+      };
+      btn.addEventListener('pointerdown', fire);
+      btn.addEventListener('touchstart', fire, { passive: false });
+      btn.addEventListener('click', (ev) => {
+        // Fallback for keyboard activation (Enter/Space) or automated synthetic .click()
+        if ((ev as MouseEvent).detail === 0 || performance.now() - lastTriggerAt > 250) {
+          lastTriggerAt = performance.now();
+          action();
+        }
+      });
+    };
+
+    bindMultitouchTap(hud.querySelector('[data-hud-fs]'), () => {
       this.viewport.toggleFullscreenLandscape();
     });
 
     const bgmBtn = hud.querySelector('[data-hud-bgm]') as HTMLButtonElement;
-    bgmBtn.addEventListener('click', () => {
+    bindMultitouchTap(bgmBtn, () => {
       const m = gothicSoundtrack.toggleMute();
       bgmBtn.textContent = m ? '🎵✕' : '🎵';
     });
 
     const muteBtn = hud.querySelector('[data-mute-btn]') as HTMLButtonElement;
-    muteBtn.addEventListener('click', () => {
+    bindMultitouchTap(muteBtn, () => {
       const m = gothicAudio.toggleMute();
       muteBtn.textContent = m ? '🔇' : '🔊';
     });
 
-    hud.querySelector('[data-pause-btn]')?.addEventListener('click', () => this.onTogglePause());
-    this.dashBtnEl?.addEventListener('click', () => this.onTriggerDash());
+    bindMultitouchTap(hud.querySelector('[data-pause-btn]'), () => this.onTogglePause());
+
+    const fireDashFromUi = () => {
+      const triggered = this.onTriggerDash();
+      if (triggered && this.dashBtnEl) {
+        this.dashBtnEl.classList.remove('dash-burst');
+        void this.dashBtnEl.offsetWidth;
+        this.dashBtnEl.classList.add('dash-burst');
+      }
+    };
+    bindMultitouchTap(this.dashBtnEl, fireDashFromUi);
 
     this.setupDynamicFloatingJoystick(
       hud.querySelector('[data-touch-surface]') as HTMLElement,
       hud.querySelector('[data-floating-joy]') as HTMLElement,
-      hud.querySelector('[data-floating-knob]') as HTMLElement
+      hud.querySelector('[data-floating-knob]') as HTMLElement,
+      fireDashFromUi
     );
 
     this.root.replaceChildren(hud);
@@ -930,7 +964,8 @@ export class UIManager {
   private setupDynamicFloatingJoystick(
     surface: HTMLElement,
     ring: HTMLElement,
-    knob: HTMLElement
+    knob: HTMLElement,
+    onSecondThumbDash: () => void
   ): void {
     let activePointerId: number | null = null;
     let originX = 0;
@@ -958,15 +993,28 @@ export class UIManager {
     };
 
     surface.addEventListener('pointerdown', (ev) => {
-      if (activePointerId !== null) return;
-      activePointerId = ev.pointerId;
       const pt = this.viewport.mapClientToLogical(ev.clientX, ev.clientY);
+      const logical = this.viewport.getLogicalSize();
+
+      // If left thumb is ALREADY steering the joystick, a second thumb tapping the right-hand dash zone triggers Passo Espectral!
+      if (activePointerId !== null) {
+        if (pt.x > logical.width * 0.62 && pt.y > logical.height * 0.45) {
+          onSecondThumbDash();
+        }
+        return;
+      }
+
+      activePointerId = ev.pointerId;
       originX = pt.x;
       originY = pt.y;
       ring.style.left = `${originX}px`;
       ring.style.top = `${originY}px`;
       ring.classList.add('active');
-      surface.setPointerCapture(ev.pointerId);
+      try {
+        surface.setPointerCapture(ev.pointerId);
+      } catch {
+        // Ignore if synthetic pointer event has no active hardware pointerId
+      }
       updateMove(ev);
     });
 
@@ -997,7 +1045,17 @@ export class UIManager {
     if (this.soulsEl) this.soulsEl.textContent = `${snap.souls}`;
 
     if (this.dashBtnEl) {
-      this.dashBtnEl.style.opacity = snap.dashReadyRatio >= 1 ? '1' : '0.45';
+      const pct = Math.round(snap.dashReadyRatio * 100);
+      this.dashBtnEl.style.setProperty('--dash-pct', `${pct}%`);
+      if (snap.dashReadyRatio >= 0.999) {
+        this.dashBtnEl.classList.add('ready');
+        if (this.dashLabelEl) this.dashLabelEl.innerHTML = 'PASSO<br/>ESPECTRAL';
+      } else {
+        this.dashBtnEl.classList.remove('ready');
+        if (this.dashLabelEl) {
+          this.dashLabelEl.innerHTML = `${snap.dashCooldownRemaining.toFixed(1)}s`;
+        }
+      }
     }
 
     // Redesigned Illustrated HUD Power Rack (6 Weapons + 6 Relics)
