@@ -2,47 +2,39 @@
 
 > *"Sete badaladas anunciaram o fim da alvorada. Sete cálices beberam o sangue do Sol. Agora, na noite que não conhece amanhã, apenas a cinza ainda queima."*
 
-Action roguelite *bullet heaven* 2D gótico inspirado em **Vampire Survivors**, construído com **Phaser 3 (WebGL)** e **TypeScript (Vite)**.
+Action roguelite *bullet heaven* 2D gótico inspirado em **Vampire Survivors**, construído com **Phaser 3 (WebGL)** e **TypeScript (Vite)** — totalmente responsivo para **Celulares (Retrato e Paisagem)** e **PC**.
 
-🔗 **Repositório:** [github.com/Ald3b4r4n/crimson-vesper](https://github.com/Ald3b4r4n/crimson-vesper)  
-📖 **Lore & Grimório Completo:** [docs/lore.md](docs/lore.md)
-
----
-
-## Destaques de Jogabilidade & Animação
-
-- **Engine Phaser 3 WebGL**: Renderização fluida a 60 FPS com câmera suavizada (*look-ahead*), vinheta pós-processada, neblina volumétrica em camadas e transição progressiva de iluminação conforme o Eclipse avança.
-- **Animações e Transições Elegantes**:
-  - **Heróis**: Capas esvoaçantes multi-frame, inclinação dinâmica de corrida, respiração em repouso, poeira nos passos e **Passo Espectral (`Espaço`)** com rastros fantasmas luminosos.
-  - **Inimigos e Hordas**: Surgimento suave emergindo das sombras no solo (sem *pop-in* brusco), separação espacial via `SpatialGrid`, flash branco + *squash & stretch* elástico ao sofrer dano, números de dano flutuantes e **dissolução em brasas e almas** na morte.
-  - **Gemas de Éter & Relicários**: Coleta magnética com curva de recuo clássica e progressão harmônica sonora no Web Audio.
-- **3 Juramentados Jogáveis**:
-  - **Alaric Belmont** (*Açoite Consagrado*)
-  - **Seraphina de Noctis** (*Cetro de Estilhaços*)
-  - **Sor Kaelen** (*Machado do Carrasco*)
-- **6 Armas Sagradas + 6 Relíquias Passivas + 6 Evoluções Ancestrais** desbloqueadas em Relicários Dourados deixados pelos Senhores do Eclipse (*Fenrir da Lua Podre*, *Cardeal Malakor* e *O Ceifador Carmesim*).
+🔗 **Jogar Online (GitHub Pages):** [ald3b4r4n.github.io/crimson-vesper](https://ald3b4r4n.github.io/crimson-vesper/)  
+📦 **Repositório:** [github.com/Ald3b4r4n/crimson-vesper](https://github.com/Ald3b4r4n/crimson-vesper)  
+📜 **Lore & Atlas das 7 Fases:** [docs/lore.md](docs/lore.md)  
+✦ **Catálogo Completo dos 27 Poderes:** [docs/poderes.md](docs/poderes.md)
 
 ---
 
-## Controles
+## Destaques
 
-- **Mover:** `WASD`, `Setas` ou Joystick Virtual (Toque/Mouse)
-- **Passo Espectral (Dash Invulnerável):** `Espaço` ou botão `PASSO`
-- **Escolher Upgrade Rápido:** `1`, `2`, `3` ou clique nas cartas
-- **Pausar:** `Esc` ou `P`
+- **Página de Introdução Ilustrada**: Arte dark-fantasy gótica panorâmica (`public/art/intro-cover.jpg`), retratos pintados dos **4 Juramentados**, seletor ilustrado das **7 Fases**, aba interativa de **Lista de Poderes (27)** e **Grimório & Lore**.
+- **7 Fases Distintas**:
+  1. **Fase I — Floresta dos Lamentos** *(Floresta Amaldiçoada)*
+  2. **Fase II — Castelo Assombrado de Valen** *(Castelo Abandonado Assombrado)*
+  3. **Fase III — Masmorras da Inquisição** *(Masmorra Subterrânea)*
+  4. **Fase IV — Deserto das Crateras Rubras** *(Deserto com Vulcões e Lava)*
+  5. **Fase V — Metrópole Devastada de Solaris** *(Metrópole Medieval em Chamas)*
+  6. **Fase VI — Templo Profanado de Alabastro** *(Catedral Religiosa Dessecrada)*
+  7. **Fase VII — O Inferno Rubro** *(Nono Círculo Abissal)*
+- **Personagens e Inimigos Aprimorados**: 4 heróis com ciclos de 6 quadros, capas esvoaçantes, armaduras detalhadas e armas relíquia; 13 espécies de inimigos + 7 Chefes Guardiões colossais com transições suaves de surgimento, impacto elástico e dissolução em brasas.
+- **100% Responsivo para Celulares**: Layout adaptativo com `100dvh` e *safe-area*, joystick analógico flutuante dinâmico ao tocar em qualquer ponto da arena e botão dedicado de **Passo Espectral**.
 
 ---
 
 ## Como Executar e Validar
-
-Requer **Node.js 24+**:
 
 ```bash
 npm install
 npm run dev
 ```
 
-Validação completa (TypeScript, ESLint, Testes Unitários e Build de Produção):
+Validação completa:
 
 ```bash
 npm run typecheck

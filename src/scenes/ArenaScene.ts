@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { forgeAllTexturesAndAnims } from '../art/SpriteForge';
+import { forgeAllTexturesAndAnims, forgeStageTextures } from '../art/SpriteForge';
 import { gothicAudio } from '../audio/GothicAudio';
 import {
   ENEMIES,
@@ -8,6 +8,9 @@ import {
   HEROES,
   HeroId,
   HeroStats,
+  StageDefinition,
+  StageId,
+  STAGES,
 } from '../data/loreData';
 import { SpatialGrid } from '../game/SpatialGrid';
 import {
@@ -28,10 +31,12 @@ export interface HudSnapshot {
   xpToNext: number;
   level: number;
   elapsedSeconds: number;
+  stageDurationSeconds: number;
   kills: number;
   souls: number;
   dashReadyRatio: number;
-  phaseName: string;
+  stageName: string;
+  stageRoman: string;
   inventory: InventoryState;
   boss?: {
     name: string;
@@ -43,6 +48,7 @@ export interface HudSnapshot {
 export interface RunSummary {
   victory: boolean;
   heroId: HeroId;
+  stageId: StageId;
   elapsedSeconds: number;
   level: number;
   kills: number;
@@ -76,7 +82,8 @@ interface EnemyRuntime {
   knockVy: number;
   active: boolean;
   dying: boolean;
-  spawnProgress: number; // 0 -> 1 emergence transition
+  isFinalStageBoss: boolean;
+  spawnProgress: number;
   hitFlashTimer: number;
   squashTimer: number;
   animSeed: number;
@@ -93,6 +100,8 @@ interface ProjectileRuntime {
   y: number;
   vx: number;
   vy: number;
+  accelX: number;
+  accelY: number;
   gravity: number;
   spinSpeed: number;
   damage: number;
@@ -104,6 +113,18 @@ interface ProjectileRuntime {
   hitIds: Set<number>;
 }
 
+interface FirePoolRuntime {
+  sprite: Phaser.GameObjects.Image;
+  x: number;
+  y: number;
+  radius: number;
+  damage: number;
+  life: number;
+  maxLife: number;
+  tickTimer: number;
+  homing: boolean;
+}
+
 interface GemRuntime {
   sprite: Phaser.GameObjects.Image;
   x: number;
@@ -111,8 +132,6 @@ interface GemRuntime {
   xpValue: number;
   magnetized: boolean;
   magnetTime: number;
-  originX: number;
-  originY: number;
   bobSeed: number;
 }
 
@@ -131,20 +150,20 @@ interface PropRuntime {
   y: number;
 }
 
-const RUN_VICTORY_SECONDS = 600; // 10 intense minutes to Full Eclipse & Crimson Reaper
-
 export class ArenaScene extends Phaser.Scene {
   private callbacks!: ArenaCallbacks;
   private heroId: HeroId = 'alaric';
+  private stageDef: StageDefinition = STAGES[0];
   private inventory!: InventoryState;
   private stats!: HeroStats;
 
   // World & Atmosphere
-  private forestBg!: Phaser.GameObjects.TileSprite;
+  private groundBg!: Phaser.GameObjects.TileSprite;
   private roadBg!: Phaser.GameObjects.TileSprite;
   private ambientOverlay!: Phaser.GameObjects.Rectangle;
   private fogWisps: Array<{ sprite: Phaser.GameObjects.Image; vx: number; vy: number }> = [];
   private props: PropRuntime[] = [];
+  private ambientEmberTimer = 0;
 
   // Hero
   private heroSprite!: Phaser.GameObjects.Sprite;
@@ -156,8 +175,10 @@ export class ArenaScene extends Phaser.Scene {
   private heroVx = 0;
   private heroVy = 0;
   private facing = 1;
-  private hp = 120;
-  private trailingHp = 120;
+  private aimX = 1;
+  private aimY = 0;
+  private hp = 125;
+  private trailingHp = 125;
   private invulnTimer = 0;
   private dashCooldownTimer = 0;
   private dashActiveTimer = 0;
@@ -165,10 +186,11 @@ export class ArenaScene extends Phaser.Scene {
   private dashDirY = 0;
   private dustStepTimer = 0;
 
-  // Entities & Spatial Index
+  // Entities
   private nextEnemyId = 1;
   private enemies: EnemyRuntime[] = [];
   private projectiles: ProjectileRuntime[] = [];
+  private firePools: FirePoolRuntime[] = [];
   private gems: GemRuntime[] = [];
   private chests: ChestRuntime[] = [];
   private orbitalSprites: Phaser.GameObjects.Image[] = [];
@@ -180,16 +202,11 @@ export class ArenaScene extends Phaser.Scene {
   private elapsedSeconds = 0;
   private kills = 0;
   private spawnAccumulator = 0;
-  private spawnedBossMilestones = new Set<string>();
-  private weaponTimers: Record<string, number> = {
-    whip: 0.3,
-    wand: 0.2,
-    axe: 0.8,
-    lightning: 1.1,
-  };
+  private spawnedMilestones = new Set<string>();
+  private weaponTimers: Record<string, number> = {};
   private hudSyncTimer = 0;
 
-  // State Flags & Controls
+  // Controls & Flags
   private modalPaused = false;
   private userPaused = false;
   private runEnded = false;
@@ -199,7 +216,6 @@ export class ArenaScene extends Phaser.Scene {
     A: Phaser.Input.Keyboard.Key;
     S: Phaser.Input.Keyboard.Key;
     D: Phaser.Input.Keyboard.Key;
-    SPACE: Phaser.Input.Keyboard.Key;
   };
   private virtualMoveX = 0;
   private virtualMoveY = 0;
@@ -208,8 +224,9 @@ export class ArenaScene extends Phaser.Scene {
     super({ key: 'ArenaScene' });
   }
 
-  configureRun(heroId: HeroId, callbacks: ArenaCallbacks): void {
+  configureRun(heroId: HeroId, stageId: StageId, callbacks: ArenaCallbacks): void {
     this.heroId = heroId;
+    this.stageDef = STAGES.find((s) => s.id === stageId) ?? STAGES[0];
     this.callbacks = callbacks;
   }
 
@@ -220,18 +237,12 @@ export class ArenaScene extends Phaser.Scene {
 
   triggerDash(): void {
     if (this.isSimulationPaused() || this.dashCooldownTimer > 0) return;
-    this.dashCooldownTimer = 2.8;
+    this.dashCooldownTimer = 2.6;
     this.dashActiveTimer = 0.22;
-    this.invulnTimer = Math.max(this.invulnTimer, 0.32);
+    this.invulnTimer = Math.max(this.invulnTimer, 0.34);
 
-    const len = Math.hypot(this.heroVx, this.heroVy);
-    if (len > 15) {
-      this.dashDirX = this.heroVx / len;
-      this.dashDirY = this.heroVy / len;
-    } else {
-      this.dashDirX = this.facing;
-      this.dashDirY = 0;
-    }
+    this.dashDirX = this.aimX;
+    this.dashDirY = this.aimY;
 
     gothicAudio.playDash();
     this.spawnRingBurst(this.heroX, this.heroY, HEROES[this.heroId].accentColor, 14);
@@ -252,17 +263,18 @@ export class ArenaScene extends Phaser.Scene {
 
   create(): void {
     forgeAllTexturesAndAnims(this);
+    const envKeys = forgeStageTextures(this, this.stageDef);
 
-    // Reset state cleanly for new or restarted runs
     this.enemies = [];
     this.projectiles = [];
+    this.firePools = [];
     this.gems = [];
     this.chests = [];
     this.orbitalSprites = [];
     this.props = [];
     this.fogWisps = [];
     this.orbitalHitCooldowns.clear();
-    this.spawnedBossMilestones.clear();
+    this.spawnedMilestones.clear();
 
     this.inventory = createInitialInventory(this.heroId);
     this.stats = computeEffectiveStats(this.inventory);
@@ -273,6 +285,8 @@ export class ArenaScene extends Phaser.Scene {
     this.heroVx = 0;
     this.heroVy = 0;
     this.facing = 1;
+    this.aimX = 1;
+    this.aimY = 0;
     this.elapsedSeconds = 0;
     this.kills = 0;
     this.spawnAccumulator = 0;
@@ -283,110 +297,122 @@ export class ArenaScene extends Phaser.Scene {
     this.userPaused = false;
     this.runEnded = false;
 
+    this.weaponTimers = {
+      whip: 0.25,
+      wand: 0.2,
+      axe: 0.55,
+      lightning: 0.9,
+      daggers: 0.2,
+      flask: 0.7,
+      cross: 0.35,
+    };
+
     const { width, height } = this.scale;
 
-    // 1. Infinite Forest & Cathedral Road
-    this.forestBg = this.add
-      .tileSprite(0, 0, width + 512, height + 512, 'forest_tile')
+    // 1. Stage-Specific Infinite Ground & Central Road
+    this.groundBg = this.add
+      .tileSprite(width / 2, height / 2, width + 512, height + 512, envKeys.groundKey)
       .setScrollFactor(0)
       .setDepth(-30);
 
     this.roadBg = this.add
-      .tileSprite(width / 2, height / 2, 160, height + 512, 'road_tile')
+      .tileSprite(width / 2, height / 2, 168, height + 512, envKeys.roadKey)
       .setScrollFactor(0)
       .setDepth(-28);
 
-    // Populate gothic props in world space (recycled smoothly around hero)
-    this.initWorldProps();
+    this.initWorldProps(envKeys.propKeys);
 
-    // 2. Thurible Sanctuary Aura (under hero)
+    // 2. Thurible Sanctuary Aura
     this.thuribleAura = this.add
       .image(0, 0, 'vfx_aura_ring')
       .setDepth(2)
       .setAlpha(0)
       .setBlendMode(Phaser.BlendModes.ADD);
 
-    // 3. Hero Shadow & Animated Sprite
-    this.heroShadow = this.add.image(0, 22, 'vfx_shadow').setDepth(4).setScale(1.05, 0.9);
+    // 3. Upgraded Hero Shadow & Animated Sprite
+    this.heroShadow = this.add.image(0, 26, 'vfx_shadow').setDepth(4).setScale(1.12, 0.95);
     this.heroSprite = this.add
       .sprite(0, 0, `hero_${this.heroId}`, 0)
       .setDepth(10)
       .setScale(0.1);
     this.heroSprite.play(`hero_${this.heroId}_walk`);
 
-    // Dramatic Hero Arrival Entrance Tween
     this.tweens.add({
       targets: this.heroSprite,
-      scaleX: 1.15,
-      scaleY: 1.15,
-      duration: 520,
+      scaleX: 1.08,
+      scaleY: 1.08,
+      duration: 500,
       ease: 'Back.easeOut',
     });
     this.spawnRingBurst(0, 0, HEROES[this.heroId].accentColor, 18);
 
-    // World-space HP bar below hero (classic Vampire Survivors style!)
     this.hpBarGraphics = this.add.graphics().setDepth(25);
 
-    // 4. Drifting Atmospheric Mist & Eclipse Lighting Overlay
-    for (let i = 0; i < 9; i++) {
+    // 4. Stage Fog & Lighting
+    for (let i = 0; i < 8; i++) {
       const wisp = this.add
-        .image(
-          Phaser.Math.Between(0, width),
-          Phaser.Math.Between(0, height),
-          'vfx_fog'
-        )
+        .image(Phaser.Math.Between(0, width), Phaser.Math.Between(0, height), 'vfx_fog')
         .setScrollFactor(0)
         .setDepth(40)
-        .setScale(Phaser.Math.FloatBetween(1.8, 3.4))
-        .setAlpha(Phaser.Math.FloatBetween(0.18, 0.36))
+        .setTint(this.stageDef.palette.fogColor)
+        .setScale(Phaser.Math.FloatBetween(1.8, 3.2))
+        .setAlpha(Phaser.Math.FloatBetween(0.14, 0.3))
         .setBlendMode(Phaser.BlendModes.SCREEN);
       this.fogWisps.push({
         sprite: wisp,
-        vx: Phaser.Math.FloatBetween(10, 26),
+        vx: Phaser.Math.FloatBetween(12, 28),
         vy: Phaser.Math.FloatBetween(-5, 6),
       });
     }
 
     this.ambientOverlay = this.add
-      .rectangle(width / 2, height / 2, width + 64, height + 64, 0x16091e, 0.14)
+      .rectangle(
+        width / 2,
+        height / 2,
+        width + 64,
+        height + 64,
+        this.stageDef.palette.ambientStart,
+        0.14
+      )
       .setScrollFactor(0)
       .setDepth(42)
       .setBlendMode(Phaser.BlendModes.MULTIPLY);
 
-    // Subtle WebGL Vignette on Camera if WebGL pipeline available
     const cam = this.cameras.main;
     cam.centerOn(0, 0);
     if (cam.postFX) {
+      cam.postFX.clear();
       cam.postFX.addVignette(0.5, 0.5, 0.88, 0.34);
     }
 
-    // 5. Keyboard Controls
+    // 5. Keyboard Bindings
     if (this.input.keyboard) {
+      this.input.keyboard.removeAllListeners();
       this.cursors = this.input.keyboard.createCursorKeys();
       this.wasd = {
         W: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W),
         A: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
         S: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
         D: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D),
-        SPACE: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE),
       };
-
       this.input.keyboard.on('keydown-SPACE', () => this.triggerDash());
       this.input.keyboard.on('keydown-ESC', () => this.toggleUserPause());
       this.input.keyboard.on('keydown-P', () => this.toggleUserPause());
     }
 
+    this.scale.off('resize', this.handleResize, this);
     this.scale.on('resize', this.handleResize, this);
     this.handleResize(this.scale.gameSize);
 
-    // Kick off initial wave of bats so action begins immediately with style
+    // Initial wave from this stage's native enemy pool
+    const starterKind = this.stageDef.enemyPool[0];
     for (let i = 0; i < 8; i++) {
-      this.spawnEnemyAroundHero('bat');
+      this.spawnEnemyAroundHero(starterKind);
     }
 
     this.callbacks?.onBannerAnnouncement(
-      'Floresta dos Lamentos',
-      'Sobreviva ao Eclipse Carmesim e colete as Gemas de Éter'
+      `Fase ${this.stageDef.roman} · ${this.stageDef.name}`,
+      this.stageDef.subtitle
     );
     this.pushHudUpdate();
   }
@@ -394,29 +420,28 @@ export class ArenaScene extends Phaser.Scene {
   private handleResize(gameSize: Phaser.Structs.Size): void {
     const w = gameSize.width;
     const h = gameSize.height;
-    if (this.forestBg) {
-      this.forestBg.setPosition(w / 2, h / 2).setSize(w + 512, h + 512);
+    if (this.groundBg) {
+      this.groundBg.setPosition(w / 2, h / 2).setSize(w + 512, h + 512);
     }
     if (this.ambientOverlay) {
       this.ambientOverlay.setPosition(w / 2, h / 2).setSize(w + 64, h + 64);
     }
   }
 
-  private initWorldProps(): void {
-    const keys = ['prop_pillar', 'prop_tree', 'prop_brazier'];
+  private initWorldProps(propKeys: [string, string, string]): void {
     for (let i = 0; i < 34; i++) {
-      const key = keys[i % keys.length];
+      const key = propKeys[i % 3];
       let px = Phaser.Math.Between(-1200, 1200);
       const py = Phaser.Math.Between(-1200, 1200);
-      if (Math.abs(px) < 120) px += px >= 0 ? 150 : -150; // Keep central road clear
+      if (Math.abs(px) < 125) px += px >= 0 ? 150 : -150;
 
-      const sprite = this.add.image(px, py, key).setDepth(py * 0.001 + 3);
+      const sprite = this.add.image(px, py, key).setDepth(3);
       let glow: Phaser.GameObjects.Image | undefined;
-      if (key === 'prop_brazier') {
+      if (i % 3 === 2) {
         glow = this.add
-          .image(px, py - 8, 'vfx_particle')
+          .image(px, py - 10, 'vfx_particle')
           .setScale(7)
-          .setTint(0xff8c3b)
+          .setTint(this.stageDef.palette.emberTint)
           .setAlpha(0.28)
           .setDepth(2)
           .setBlendMode(Phaser.BlendModes.ADD);
@@ -440,12 +465,12 @@ export class ArenaScene extends Phaser.Scene {
     this.updateWaveDirector(dt);
     this.updateSpatialGrid();
     this.updateWeapons(time, dt);
+    this.updateFirePools(time, dt);
     this.updateProjectiles(dt);
     this.updateEnemies(time, dt);
     this.updateGemsAndChests(time, dt);
     this.drawHeroHpBar();
 
-    // Passive HP Regeneration
     if (this.hp > 0 && this.hp < this.stats.maxHp) {
       this.hp = Math.min(this.stats.maxHp, this.hp + this.stats.regen * dt);
     }
@@ -456,15 +481,26 @@ export class ArenaScene extends Phaser.Scene {
       this.pushHudUpdate();
     }
 
-    if (this.elapsedSeconds >= RUN_VICTORY_SECONDS && !this.spawnedBossMilestones.has('reaper')) {
-      this.spawnedBossMilestones.add('reaper');
-      this.spawnBoss('reaper', 'O Ceifador Carmesim', 'A Meia-Noite Eterna chegou!');
+    if (
+      this.elapsedSeconds >= this.stageDef.durationSeconds &&
+      !this.spawnedMilestones.has('final_boss')
+    ) {
+      this.spawnedMilestones.add('final_boss');
+      const finalDef = ENEMIES[this.stageDef.finalBoss];
+      this.spawnBoss(
+        this.stageDef.finalBoss,
+        finalDef.name,
+        'Derrote o Guardião da Região para conquistar esta Fase!',
+        true
+      );
     }
   }
 
   private updateHeroMovementAndAnims(time: number, dt: number): void {
     if (this.invulnTimer > 0) this.invulnTimer = Math.max(0, this.invulnTimer - dt);
-    if (this.dashCooldownTimer > 0) this.dashCooldownTimer = Math.max(0, this.dashCooldownTimer - dt);
+    if (this.dashCooldownTimer > 0) {
+      this.dashCooldownTimer = Math.max(0, this.dashCooldownTimer - dt);
+    }
 
     let inputX = this.virtualMoveX;
     let inputY = this.virtualMoveY;
@@ -481,6 +517,10 @@ export class ArenaScene extends Phaser.Scene {
       inputX /= inputLen;
       inputY /= inputLen;
     }
+    if (inputLen > 0.12) {
+      this.aimX = inputX / (inputLen || 1);
+      this.aimY = inputY / (inputLen || 1);
+    }
 
     if (this.dashActiveTimer > 0) {
       this.dashActiveTimer -= dt;
@@ -488,7 +528,6 @@ export class ArenaScene extends Phaser.Scene {
       this.heroVx = this.dashDirX * dashSpeed;
       this.heroVy = this.dashDirY * dashSpeed;
 
-      // Spawn fading spectral afterimages during dash
       if (Math.random() < 0.65) {
         const ghost = this.add
           .image(this.heroX, this.heroY, `hero_${this.heroId}`, this.heroSprite.frame.name)
@@ -508,7 +547,6 @@ export class ArenaScene extends Phaser.Scene {
         });
       }
     } else {
-      // Smooth acceleration & graceful deceleration transition
       const targetVx = inputX * this.stats.moveSpeed;
       const targetVy = inputY * this.stats.moveSpeed;
       const accel = inputLen > 0.05 ? 14 : 11;
@@ -526,29 +564,27 @@ export class ArenaScene extends Phaser.Scene {
     const speedRatio = Math.min(1, Math.hypot(this.heroVx, this.heroVy) / this.stats.moveSpeed);
     this.heroSprite.setPosition(this.heroX, this.heroY);
     this.heroSprite.setFlipX(this.facing < 0);
-    this.heroShadow.setPosition(this.heroX, this.heroY + 22);
+    this.heroShadow.setPosition(this.heroX, this.heroY + 26);
 
-    // Elegant secondary motion: dynamic lean + stride squash/stretch vs calm idle breathing
-    const targetTilt = (this.heroVx / this.stats.moveSpeed) * 0.095;
+    const targetTilt = (this.heroVx / this.stats.moveSpeed) * 0.085;
     this.heroSprite.rotation = Phaser.Math.Linear(this.heroSprite.rotation, targetTilt, 10 * dt);
 
     if (speedRatio > 0.15) {
-      this.heroSprite.anims.timeScale = 0.75 + speedRatio * 0.65;
-      const stridePulse = Math.sin(time * 0.016) * 0.05 * speedRatio;
-      this.heroSprite.setScale(1.15 - stridePulse, 1.15 + stridePulse);
+      this.heroSprite.anims.timeScale = 0.8 + speedRatio * 0.65;
+      const stridePulse = Math.sin(time * 0.016) * 0.045 * speedRatio;
+      this.heroSprite.setScale(1.08 - stridePulse, 1.08 + stridePulse);
 
       this.dustStepTimer -= dt;
       if (this.dustStepTimer <= 0) {
         this.dustStepTimer = 0.18;
-        this.spawnFootstepDust(this.heroX, this.heroY + 20);
+        this.spawnFootstepDust(this.heroX, this.heroY + 24);
       }
     } else {
-      this.heroSprite.anims.timeScale = 0.35;
-      const breath = Math.sin(time * 0.004) * 0.03;
-      this.heroSprite.setScale(1.15 + breath * 0.5, 1.15 - breath);
+      this.heroSprite.anims.timeScale = 0.32;
+      const breath = Math.sin(time * 0.004) * 0.025;
+      this.heroSprite.setScale(1.08 + breath * 0.5, 1.08 - breath);
     }
 
-    // Hurt invulnerability shimmer
     if (this.invulnTimer > 0 && this.dashActiveTimer <= 0) {
       this.heroSprite.setAlpha(Math.sin(time * 0.045) > 0 ? 1 : 0.45);
     } else {
@@ -558,23 +594,21 @@ export class ArenaScene extends Phaser.Scene {
 
   private updateCameraAndScenery(time: number, dt: number): void {
     const cam = this.cameras.main;
-    const lookAheadX = this.heroVx * 0.22;
-    const lookAheadY = this.heroVy * 0.22;
+    const lookAheadX = this.heroVx * 0.2;
+    const lookAheadY = this.heroVy * 0.2;
     const targetCamX = this.heroX + lookAheadX - cam.width / 2;
     const targetCamY = this.heroY + lookAheadY - cam.height / 2;
 
     cam.scrollX = Phaser.Math.Linear(cam.scrollX, targetCamX, Math.min(1, 6.5 * dt));
     cam.scrollY = Phaser.Math.Linear(cam.scrollY, targetCamY, Math.min(1, 6.5 * dt));
 
-    this.forestBg.tilePositionX = cam.scrollX;
-    this.forestBg.tilePositionY = cam.scrollY;
+    this.groundBg.tilePositionX = cam.scrollX;
+    this.groundBg.tilePositionY = cam.scrollY;
 
-    // Keep ancient north-south road anchored at world X = 0!
     const roadScreenX = 0 - cam.scrollX;
     this.roadBg.setPosition(roadScreenX, cam.height / 2);
     this.roadBg.tilePositionY = cam.scrollY;
 
-    // Wrap gothic scenery props seamlessly around the camera
     const wrapRange = 1250;
     for (let i = 0; i < this.props.length; i++) {
       const p = this.props[i];
@@ -594,16 +628,15 @@ export class ArenaScene extends Phaser.Scene {
         moved = true;
       }
       if (moved) {
-        if (Math.abs(p.x) < 120) p.x += p.x >= 0 ? 140 : -140;
+        if (Math.abs(p.x) < 125) p.x += p.x >= 0 ? 145 : -145;
         p.sprite.setPosition(p.x, p.y);
       }
       if (p.glow) {
-        p.glow.setPosition(p.x, p.y - 10);
+        p.glow.setPosition(p.x, p.y - 12);
         p.glow.setAlpha(0.22 + Math.sin(time * 0.008 + i) * 0.07);
       }
     }
 
-    // Drift atmospheric fog wisps
     for (const w of this.fogWisps) {
       w.sprite.x += w.vx * dt;
       w.sprite.y += w.vy * dt;
@@ -612,154 +645,162 @@ export class ArenaScene extends Phaser.Scene {
       if (w.sprite.y > cam.height + 120) w.sprite.y = -120;
     }
 
-    // Smooth atmospheric color progression toward the Crimson Eclipse!
-    const eclipseProgress = Math.min(1, this.elapsedSeconds / RUN_VICTORY_SECONDS);
-    const r = Math.round(Phaser.Math.Linear(22, 72, eclipseProgress));
-    const g = Math.round(Phaser.Math.Linear(14, 8, eclipseProgress));
-    const b = Math.round(Phaser.Math.Linear(34, 22, eclipseProgress));
-    this.ambientOverlay.setFillStyle((r << 16) | (g << 8) | b, 0.14 + eclipseProgress * 0.16);
+    // Floating Stage Embers / Ash / Hellfire sparks
+    this.ambientEmberTimer -= dt;
+    if (this.ambientEmberTimer <= 0) {
+      this.ambientEmberTimer = 0.22;
+      const ex = cam.scrollX + Phaser.Math.Between(0, cam.width);
+      const ey = cam.scrollY + cam.height + 10;
+      const spark = this.add
+        .image(ex, ey, 'vfx_particle')
+        .setDepth(35)
+        .setScale(Phaser.Math.FloatBetween(0.3, 0.65))
+        .setTint(this.stageDef.palette.emberTint)
+        .setAlpha(0.75)
+        .setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({
+        targets: spark,
+        y: ey - Phaser.Math.Between(120, 260),
+        x: ex + Phaser.Math.Between(-50, 50),
+        alpha: 0,
+        duration: Phaser.Math.Between(1400, 2400),
+        onComplete: () => spark.destroy(),
+      });
+    }
   }
 
   private updateWaveDirector(dt: number): void {
     const t = this.elapsedSeconds;
-    const maxActiveEnemies = Math.min(340, Math.round(48 + t * 0.58));
+    const dur = this.stageDef.durationSeconds;
+    const progress = Math.min(1, t / dur);
+    const maxActiveEnemies = Math.min(320, Math.round(45 + progress * 195));
 
-    // Boss milestones
-    if (t >= 90 && !this.spawnedBossMilestones.has('fenrir')) {
-      this.spawnedBossMilestones.add('fenrir');
+    // Mid-boss around 38% of stage duration
+    if (progress >= 0.38 && !this.spawnedMilestones.has('mid_boss')) {
+      this.spawnedMilestones.add('mid_boss');
+      const midDef = ENEMIES[this.stageDef.midBoss];
       this.spawnBoss(
-        'fenrir',
-        'Fenrir da Lua Podre',
-        'O Guardião Feral farejou seu sangue na floresta!'
+        this.stageDef.midBoss,
+        midDef.name,
+        'Um Campeão das Trevas bloqueia sua passagem — abata-o pelo Relicário!',
+        false
       );
     }
-    if (t >= 240 && !this.spawnedBossMilestones.has('malakor')) {
-      this.spawnedBossMilestones.add('malakor');
-      this.spawnBoss(
-        'malakor',
-        'Cardeal Malakor',
-        'O Primeiro Traidor desce sobre asas escarlates!'
-      );
-    }
-    // Periodic swarm surge events (like screenshot 3's dryad + steed encircle!)
-    if (t >= 140 && !this.spawnedBossMilestones.has('surge_dryads')) {
-      this.spawnedBossMilestones.add('surge_dryads');
+
+    // Horde encirclement surge around 68% of stage duration
+    if (progress >= 0.68 && !this.spawnedMilestones.has('surge')) {
+      this.spawnedMilestones.add('surge');
+      const surgeKind = this.stageDef.enemyPool[2] ?? this.stageDef.enemyPool[0];
       this.callbacks?.onBannerAnnouncement(
-        'Maré Silvestre',
-        'Dríades Espinhosas e Corcéis da Névoa cercam a estrada!'
+        'Cerco Implacável',
+        `Enxames de ${ENEMIES[surgeKind].name} fecham o círculo!`
       );
-      this.spawnCircleWave('dryad', 24);
-    }
-    if (t >= 340 && !this.spawnedBossMilestones.has('surge_knights')) {
-      this.spawnedBossMilestones.add('surge_knights');
-      this.callbacks?.onBannerAnnouncement(
-        'Procissão de Ferro',
-        'A Guarda Cardeal Oca marcha sobre as cinzas!'
-      );
-      this.spawnCircleWave('hollow_knight', 18);
+      this.spawnCircleWave(surgeKind, 22);
     }
 
     if (this.enemies.length >= maxActiveEnemies) return;
 
-    const spawnsPerSecond = 2.6 + t * 0.032;
+    const spawnsPerSecond = (2.7 + progress * 6.5) * (0.9 + this.stageDef.difficultyMult * 0.1);
     this.spawnAccumulator += spawnsPerSecond * dt;
 
     while (this.spawnAccumulator >= 1 && this.enemies.length < maxActiveEnemies) {
       this.spawnAccumulator -= 1;
-      const kind = this.pickWaveEnemyKind(t);
+      const pool = this.stageDef.enemyPool;
+      let idx = 0;
+      const r = Math.random();
+      if (progress < 0.25) {
+        idx = r < 0.7 ? 0 : 1;
+      } else if (progress < 0.55) {
+        idx = r < 0.35 ? 0 : r < 0.75 ? 1 : 2;
+      } else {
+        idx = r < 0.2 ? 0 : r < 0.5 ? 1 : r < 0.8 ? 2 : 3;
+      }
+      const kind = pool[Math.min(pool.length - 1, idx)];
       this.spawnEnemyAroundHero(kind);
     }
   }
 
-  private pickWaveEnemyKind(t: number): EnemyKind {
-    const r = Math.random();
-    if (t < 35) {
-      return r < 0.65 ? 'bat' : 'flagellant';
-    }
-    if (t < 110) {
-      if (r < 0.32) return 'bat';
-      if (r < 0.72) return 'flagellant';
-      return 'dryad';
-    }
-    if (t < 210) {
-      if (r < 0.2) return 'flagellant';
-      if (r < 0.56) return 'dryad';
-      if (r < 0.84) return 'mist_steed';
-      return 'acolyte';
-    }
-    if (t < 360) {
-      if (r < 0.28) return 'dryad';
-      if (r < 0.55) return 'mist_steed';
-      if (r < 0.82) return 'acolyte';
-      return 'hollow_knight';
-    }
-    if (r < 0.25) return 'mist_steed';
-    if (r < 0.6) return 'acolyte';
-    return 'hollow_knight';
-  }
-
   private spawnCircleWave(kind: EnemyKind, count: number): void {
     const cam = this.cameras.main;
-    const dist = Math.hypot(cam.width, cam.height) * 0.52;
+    const dist = Math.hypot(cam.width, cam.height) * 0.5;
     for (let i = 0; i < count; i++) {
       const angle = (i / count) * Math.PI * 2;
       this.spawnEnemyAt(
         kind,
         this.heroX + Math.cos(angle) * dist,
-        this.heroY + Math.sin(angle) * dist
+        this.heroY + Math.sin(angle) * dist,
+        false
       );
     }
   }
 
-  private spawnBoss(kind: EnemyKind, title: string, subtitle: string): void {
+  private spawnBoss(
+    kind: EnemyKind,
+    title: string,
+    subtitle: string,
+    isFinalStageBoss: boolean
+  ): void {
     gothicAudio.playBossHorn();
     this.cameras.main.shake(360, 0.006);
     this.callbacks?.onBannerAnnouncement(title, subtitle);
     const angle = Math.random() * Math.PI * 2;
-    this.spawnEnemyAt(kind, this.heroX + Math.cos(angle) * 440, this.heroY + Math.sin(angle) * 440);
+    this.spawnEnemyAt(
+      kind,
+      this.heroX + Math.cos(angle) * 420,
+      this.heroY + Math.sin(angle) * 420,
+      isFinalStageBoss
+    );
   }
 
   private spawnEnemyAroundHero(kind: EnemyKind): void {
     const cam = this.cameras.main;
-    const margin = 70;
-    const halfW = cam.width / 2 + margin;
-    const halfH = cam.height / 2 + margin;
+    const halfW = cam.width / 2 + 68;
+    const halfH = cam.height / 2 + 68;
     const angle = Math.random() * Math.PI * 2;
-    const x = this.heroX + Math.cos(angle) * halfW;
-    const y = this.heroY + Math.sin(angle) * halfH;
-    this.spawnEnemyAt(kind, x, y);
+    this.spawnEnemyAt(
+      kind,
+      this.heroX + Math.cos(angle) * halfW,
+      this.heroY + Math.sin(angle) * halfH,
+      false
+    );
   }
 
-  private spawnEnemyAt(kind: EnemyKind, x: number, y: number): void {
+  private spawnEnemyAt(
+    kind: EnemyKind,
+    x: number,
+    y: number,
+    isFinalStageBoss: boolean
+  ): void {
     const def = ENEMIES[kind];
-    const timeScaleHp = 1 + this.elapsedSeconds * 0.0038;
-    const scaledHp = Math.round(def.hp * (def.isBoss ? 1 : timeScaleHp));
+    const timeMult = 1 + this.elapsedSeconds * 0.0035;
+    const scaledHp = Math.round(
+      def.hp * this.stageDef.difficultyMult * (def.isBoss ? 1 : timeMult)
+    );
 
     const shadow = this.add
-      .image(x, y + 16 * def.scale, 'vfx_shadow')
+      .image(x, y + 20 * def.scale, 'vfx_shadow')
       .setDepth(3)
-      .setScale(def.scale * 0.85, def.scale * 0.7)
+      .setScale(def.scale * 0.9, def.scale * 0.72)
       .setAlpha(0);
 
     const sprite = this.add
-      .sprite(x, y, `enemy_${kind}`, Phaser.Math.Between(0, 3))
+      .sprite(x, y, `enemy_${kind}`, Phaser.Math.Between(0, 5))
       .setDepth(def.isBoss ? 14 : 7)
       .setScale(def.scale * 0.35, def.scale * 0.12)
       .setAlpha(0)
       .setTint(0x2a1428);
     sprite.play(`enemy_${kind}_move`);
 
-    // Subtle dark emergence ring
     const ripple = this.add
-      .image(x, y + 12, 'vfx_particle')
-      .setTint(def.isBoss ? 0xff2a55 : 0x5c2b68)
+      .image(x, y + 14, 'vfx_particle')
+      .setTint(def.isBoss ? 0xff2a55 : this.stageDef.palette.emberTint)
       .setScale(0.5)
-      .setAlpha(0.65)
+      .setAlpha(0.62)
       .setDepth(3);
     this.tweens.add({
       targets: ripple,
-      scaleX: def.isBoss ? 5.5 : 2.6,
-      scaleY: def.isBoss ? 2.8 : 1.4,
+      scaleX: def.isBoss ? 6 : 2.8,
+      scaleY: def.isBoss ? 3 : 1.4,
       alpha: 0,
       duration: 380,
       onComplete: () => ripple.destroy(),
@@ -782,12 +823,13 @@ export class ArenaScene extends Phaser.Scene {
       knockVy: 0,
       active: true,
       dying: false,
+      isFinalStageBoss,
       spawnProgress: 0,
       hitFlashTimer: 0,
       squashTimer: 0,
       animSeed: Math.random() * Math.PI * 2,
       auraContactTimer: 0,
-      bossChargeTimer: 4.2,
+      bossChargeTimer: 4.0,
       bossCharging: false,
       bossChargeDirX: 0,
       bossChargeDirY: 0,
@@ -804,6 +846,10 @@ export class ArenaScene extends Phaser.Scene {
     }
   }
 
+  private rollCrit(force = false): boolean {
+    return force || Math.random() < this.stats.critChance;
+  }
+
   private updateWeapons(time: number, dt: number): void {
     const w = this.inventory.weapons;
 
@@ -813,7 +859,7 @@ export class ArenaScene extends Phaser.Scene {
     if (whipLv > 0 || hasBloodRose) {
       this.weaponTimers.whip -= dt;
       if (this.weaponTimers.whip <= 0) {
-        const baseCd = hasBloodRose ? 0.86 : Math.max(0.95, 1.32 - whipLv * 0.08);
+        const baseCd = hasBloodRose ? 0.85 : Math.max(0.92, 1.3 - whipLv * 0.08);
         this.weaponTimers.whip = baseCd * this.stats.cooldown;
         this.fireWhipSlash(whipLv, hasBloodRose);
       }
@@ -825,16 +871,14 @@ export class ArenaScene extends Phaser.Scene {
     if (wandLv > 0 || hasStarTorrent) {
       this.weaponTimers.wand -= dt;
       if (this.weaponTimers.wand <= 0) {
-        const baseCd = hasStarTorrent ? 0.17 : Math.max(0.46, 0.86 - wandLv * 0.09);
+        const baseCd = hasStarTorrent ? 0.16 : Math.max(0.45, 0.84 - wandLv * 0.09);
         this.weaponTimers.wand = baseCd * this.stats.cooldown;
         this.fireWandBolts(wandLv, hasStarTorrent);
       }
     }
 
-    // 3. BIBLE / IMMORTAL VESPER (Continuous Orbitals)
-    const bibleLv = w.bible ?? 0;
-    const hasImmortalVesper = Boolean(w.immortal_vesper);
-    this.updateBibleOrbitals(time, dt, bibleLv, hasImmortalVesper);
+    // 3. BIBLE / IMMORTAL VESPER
+    this.updateBibleOrbitals(time, dt, w.bible ?? 0, Boolean(w.immortal_vesper));
 
     // 4. AXE / ECLIPSE SCYTHE
     const axeLv = w.axe ?? 0;
@@ -842,26 +886,60 @@ export class ArenaScene extends Phaser.Scene {
     if (axeLv > 0 || hasEclipseScythe) {
       this.weaponTimers.axe -= dt;
       if (this.weaponTimers.axe <= 0) {
-        const baseCd = hasEclipseScythe ? 1.15 : Math.max(1.25, 1.85 - axeLv * 0.1);
+        const baseCd = hasEclipseScythe ? 1.1 : Math.max(1.2, 1.8 - axeLv * 0.1);
         this.weaponTimers.axe = baseCd * this.stats.cooldown;
         this.fireAxesOrScythes(axeLv, hasEclipseScythe);
       }
     }
 
-    // 5. THURIBLE / DEVOURING SHROUD (Sanctuary Aura)
-    const thuribleLv = w.thurible ?? 0;
-    const hasDevouringShroud = Boolean(w.devouring_shroud);
-    this.updateThuribleAura(time, dt, thuribleLv, hasDevouringShroud);
+    // 5. THURIBLE / DEVOURING SHROUD
+    this.updateThuribleAura(time, dt, w.thurible ?? 0, Boolean(w.devouring_shroud));
 
     // 6. LIGHTNING / SEVEN JUDGMENT
-    const lightningLv = w.lightning ?? 0;
+    const lightLv = w.lightning ?? 0;
     const hasSevenJudgment = Boolean(w.seven_judgment);
-    if (lightningLv > 0 || hasSevenJudgment) {
+    if (lightLv > 0 || hasSevenJudgment) {
       this.weaponTimers.lightning -= dt;
       if (this.weaponTimers.lightning <= 0) {
-        const baseCd = hasSevenJudgment ? 1.35 : Math.max(1.6, 2.5 - lightningLv * 0.16);
+        const baseCd = hasSevenJudgment ? 1.3 : Math.max(1.55, 2.45 - lightLv * 0.16);
         this.weaponTimers.lightning = baseCd * this.stats.cooldown;
-        this.fireLightningStrikes(lightningLv, hasSevenJudgment);
+        this.fireLightningStrikes(lightLv, hasSevenJudgment);
+      }
+    }
+
+    // 7. NEW: PHANTOM DAGGERS / THOUSAND FANGS
+    const daggersLv = w.daggers ?? 0;
+    const hasThousandFangs = Boolean(w.thousand_fangs);
+    if (daggersLv > 0 || hasThousandFangs) {
+      this.weaponTimers.daggers -= dt;
+      if (this.weaponTimers.daggers <= 0) {
+        const baseCd = hasThousandFangs ? 0.22 : Math.max(0.55, 0.95 - daggersLv * 0.08);
+        this.weaponTimers.daggers = baseCd * this.stats.cooldown;
+        this.firePhantomDaggers(daggersLv, hasThousandFangs);
+      }
+    }
+
+    // 8. NEW: HOLY ALCHEMICAL FLASK / PURIFYING TIDE
+    const flaskLv = w.flask ?? 0;
+    const hasPurifyingTide = Boolean(w.purifying_tide);
+    if (flaskLv > 0 || hasPurifyingTide) {
+      this.weaponTimers.flask -= dt;
+      if (this.weaponTimers.flask <= 0) {
+        const baseCd = hasPurifyingTide ? 1.8 : Math.max(2.1, 3.0 - flaskLv * 0.16);
+        this.weaponTimers.flask = baseCd * this.stats.cooldown;
+        this.fireAlchemicalFlasks(flaskLv, hasPurifyingTide);
+      }
+    }
+
+    // 9. NEW: JUDGMENT CROSS / CELESTIAL BLADE
+    const crossLv = w.cross ?? 0;
+    const hasCelestialBlade = Boolean(w.celestial_blade);
+    if (crossLv > 0 || hasCelestialBlade) {
+      this.weaponTimers.cross -= dt;
+      if (this.weaponTimers.cross <= 0) {
+        const baseCd = hasCelestialBlade ? 1.05 : Math.max(1.15, 1.75 - crossLv * 0.1);
+        this.weaponTimers.cross = baseCd * this.stats.cooldown;
+        this.fireJudgmentCrosses(crossLv, hasCelestialBlade);
       }
     }
   }
@@ -869,51 +947,51 @@ export class ArenaScene extends Phaser.Scene {
   private fireWhipSlash(lv: number, evolved: boolean): void {
     gothicAudio.playWhip(evolved);
     const slashes = (evolved ? 2 : lv >= 2 ? 2 : 1) + Math.min(2, this.stats.amount);
-    const baseDamage = (evolved ? 48 : 18 + lv * 7) * this.stats.might;
-    const areaScale = (evolved ? 1.42 : 1 + lv * 0.08) * this.stats.area;
+    const baseDamage = (evolved ? 52 : 20 + lv * 7.5) * this.stats.might;
+    const areaScale = (evolved ? 1.45 : 1 + lv * 0.08) * this.stats.area;
 
     for (let i = 0; i < slashes; i++) {
       const dir = i % 2 === 0 ? this.facing : -this.facing;
       const offsetY = i >= 2 ? (i % 2 === 0 ? -26 : 26) : -6 + i * 14;
-      const delay = i * 75;
-
-      this.time.delayedCall(delay, () => {
+      this.time.delayedCall(i * 75, () => {
         if (this.isSimulationPaused()) return;
-        const sx = this.heroX + dir * (68 * areaScale);
+        const sx = this.heroX + dir * (72 * areaScale);
         const sy = this.heroY + offsetY;
 
         const slash = this.add
           .image(sx, sy, 'vfx_whip_slash')
           .setDepth(18)
           .setFlipX(dir < 0)
-          .setScale(0.2 * areaScale, 0.55 * areaScale)
+          .setScale(0.2 * areaScale, 0.58 * areaScale)
           .setTint(evolved ? 0xff2a55 : 0xfff6dc)
           .setBlendMode(Phaser.BlendModes.ADD);
 
         this.tweens.add({
           targets: slash,
-          scaleX: 1.15 * areaScale,
-          scaleY: 1.08 * areaScale,
+          scaleX: 1.18 * areaScale,
+          scaleY: 1.1 * areaScale,
           alpha: { from: 1, to: 0 },
           duration: 210,
           ease: 'Cubic.easeOut',
           onComplete: () => slash.destroy(),
         });
 
-        // Rectangular/oval hitbox check via SpatialGrid
-        const reachX = 86 * areaScale;
-        const reachY = 38 * areaScale;
+        const reachX = 88 * areaScale;
+        const reachY = 40 * areaScale;
         const candidates = this.grid.queryRadius(sx, sy, reachX);
         for (const enemy of candidates) {
-          if (Math.abs(enemy.x - sx) <= reachX + enemy.radius && Math.abs(enemy.y - sy) <= reachY + enemy.radius) {
-            const isCrit = evolved || Math.random() < 0.15;
+          if (
+            Math.abs(enemy.x - sx) <= reachX + enemy.radius &&
+            Math.abs(enemy.y - sy) <= reachY + enemy.radius
+          ) {
+            const isCrit = this.rollCrit(evolved);
             this.damageEnemy(
               enemy,
-              isCrit ? baseDamage * 1.5 : baseDamage,
-              dir * 210,
+              isCrit ? baseDamage * 1.55 : baseDamage,
+              dir * 215,
               0,
               isCrit,
-              evolved ? 1.5 : 0
+              evolved ? 1.6 : 0
             );
           }
         }
@@ -922,21 +1000,21 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private fireWandBolts(lv: number, evolved: boolean): void {
-    const nearest = this.grid.findNearest(this.heroX, this.heroY, 540);
+    const nearest = this.grid.findNearest(this.heroX, this.heroY, 560);
     if (!nearest) return;
 
     const count = (evolved ? 1 : 1 + Math.floor(lv / 2)) + this.stats.amount;
-    const damage = (evolved ? 26 : 14 + lv * 5) * this.stats.might;
+    const damage = (evolved ? 28 : 15 + lv * 5.5) * this.stats.might;
     const pierce = evolved ? 3 : lv >= 3 ? 2 : 1;
 
     for (let i = 0; i < count; i++) {
-      this.time.delayedCall(i * (evolved ? 45 : 75), () => {
+      this.time.delayedCall(i * (evolved ? 42 : 72), () => {
         if (this.isSimulationPaused()) return;
-        const target = this.grid.findNearest(this.heroX, this.heroY, 560) ?? nearest;
+        const target = this.grid.findNearest(this.heroX, this.heroY, 580) ?? nearest;
         const angle =
           Math.atan2(target.y - this.heroY, target.x - this.heroX) +
-          Phaser.Math.FloatBetween(-0.07, 0.07);
-        const speed = evolved ? 540 : 420 + lv * 20;
+          Phaser.Math.FloatBetween(-0.06, 0.06);
+        const speed = (evolved ? 560 : 430 + lv * 20) * this.stats.projSpeed;
 
         gothicAudio.playWand(evolved);
         const sprite = this.add
@@ -953,16 +1031,196 @@ export class ArenaScene extends Phaser.Scene {
           y: this.heroY - 6,
           vx: Math.cos(angle) * speed,
           vy: Math.sin(angle) * speed,
+          accelX: 0,
+          accelY: 0,
           gravity: 0,
           spinSpeed: 0,
           damage,
           pierce,
-          radius: 12 * this.stats.area,
+          radius: 13 * this.stats.area,
           life: 1.5,
-          crit: evolved && Math.random() < 0.25,
+          crit: this.rollCrit(),
           lifeSteal: 0,
           hitIds: new Set(),
         });
+      });
+    }
+  }
+
+  private firePhantomDaggers(lv: number, evolved: boolean): void {
+    const count = (evolved ? 3 : 2 + Math.floor(lv * 0.8)) + this.stats.amount;
+    const damage = (evolved ? 30 : 14 + lv * 5) * this.stats.might;
+    const baseAngle = Math.atan2(this.aimY, this.aimX);
+    const speed = (evolved ? 680 : 520 + lv * 25) * this.stats.projSpeed;
+
+    gothicAudio.playWand(true);
+    for (let i = 0; i < count; i++) {
+      const spread = (i - (count - 1) / 2) * 0.11;
+      const angle = baseAngle + spread;
+      const sprite = this.add
+        .image(this.heroX, this.heroY - 4, 'vfx_dagger')
+        .setDepth(16)
+        .setScale(this.stats.area * (evolved ? 1.3 : 1.05))
+        .setRotation(angle)
+        .setTint(evolved ? 0xffffff : 0xcaf0f8)
+        .setBlendMode(Phaser.BlendModes.ADD);
+
+      this.projectiles.push({
+        sprite,
+        x: this.heroX,
+        y: this.heroY - 4,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        accelX: 0,
+        accelY: 0,
+        gravity: 0,
+        spinSpeed: 0,
+        damage,
+        pierce: evolved ? 4 : lv >= 3 ? 2 : 1,
+        radius: 11 * this.stats.area,
+        life: 1.15,
+        crit: this.rollCrit(evolved && Math.random() < 0.45),
+        lifeSteal: 0,
+        hitIds: new Set(),
+      });
+    }
+  }
+
+  private fireAlchemicalFlasks(lv: number, evolved: boolean): void {
+    const count = (evolved ? 3 : 1 + Math.floor(lv / 2)) + Math.min(2, this.stats.amount);
+    const poolRadius = (evolved ? 95 : 54 + lv * 7) * this.stats.area;
+    const poolDamage = (evolved ? 26 : 9 + lv * 3.8) * this.stats.might;
+    const duration = evolved ? 4.4 : 2.8 + lv * 0.25;
+
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2 + Math.random() * 0.9;
+      const dist = Phaser.Math.Between(90, 210);
+      const tx = this.heroX + Math.cos(angle) * dist;
+      const ty = this.heroY + Math.sin(angle) * dist;
+
+      const bottle = this.add
+        .image(this.heroX, this.heroY - 12, 'vfx_particle')
+        .setDepth(19)
+        .setScale(1.1)
+        .setTint(evolved ? 0x00f5d4 : 0x52ff9a);
+
+      this.tweens.add({
+        targets: bottle,
+        x: tx,
+        y: ty,
+        scaleX: 1.5,
+        scaleY: 1.5,
+        duration: 340,
+        ease: 'Quad.easeOut',
+        onComplete: () => {
+          bottle.destroy();
+          if (this.runEnded) return;
+          const poolSprite = this.add
+            .image(tx, ty, 'vfx_fire_pool')
+            .setDepth(2)
+            .setDisplaySize(20, 20)
+            .setTint(evolved ? 0x00bbf9 : 0x52ff9a)
+            .setBlendMode(Phaser.BlendModes.ADD);
+
+          this.tweens.add({
+            targets: poolSprite,
+            displayWidth: poolRadius * 2,
+            displayHeight: poolRadius * 2,
+            duration: 240,
+            ease: 'Back.easeOut',
+          });
+
+          this.firePools.push({
+            sprite: poolSprite,
+            x: tx,
+            y: ty,
+            radius: poolRadius,
+            damage: poolDamage,
+            life: duration,
+            maxLife: duration,
+            tickTimer: 0,
+            homing: evolved,
+          });
+        },
+      });
+    }
+  }
+
+  private updateFirePools(time: number, dt: number): void {
+    for (let i = this.firePools.length - 1; i >= 0; i--) {
+      const fp = this.firePools[i];
+      fp.life -= dt;
+      fp.tickTimer -= dt;
+
+      if (fp.homing) {
+        const dx = this.heroX - fp.x;
+        const dy = this.heroY - fp.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        if (dist > 35) {
+          fp.x += (dx / dist) * 42 * dt;
+          fp.y += (dy / dist) * 42 * dt;
+        }
+      }
+
+      fp.sprite
+        .setPosition(fp.x, fp.y)
+        .setRotation(time * 0.0018)
+        .setAlpha(Math.min(0.75, (fp.life / 0.5) * 0.75));
+
+      if (fp.tickTimer <= 0) {
+        fp.tickTimer = 0.34;
+        const victims = this.grid.queryRadius(fp.x, fp.y, fp.radius);
+        for (const v of victims) {
+          this.damageEnemy(v, fp.damage, 0, 0, false, 0);
+        }
+      }
+
+      if (fp.life <= 0) {
+        fp.sprite.destroy();
+        this.firePools.splice(i, 1);
+      }
+    }
+  }
+
+  private fireJudgmentCrosses(lv: number, evolved: boolean): void {
+    gothicAudio.playAxe();
+    const count = (evolved ? 2 : lv >= 3 ? 2 : 1) + this.stats.amount;
+    const damage = (evolved ? 48 : 20 + lv * 7) * this.stats.might;
+    const nearest = this.grid.findNearest(this.heroX, this.heroY, 500);
+    const baseAngle = nearest
+      ? Math.atan2(nearest.y - this.heroY, nearest.x - this.heroX)
+      : Math.atan2(this.aimY, this.aimX);
+
+    for (let i = 0; i < count; i++) {
+      const angle = baseAngle + (i - (count - 1) / 2) * 0.35;
+      const outSpeed = (340 + lv * 20) * this.stats.projSpeed;
+      const vx = Math.cos(angle) * outSpeed;
+      const vy = Math.sin(angle) * outSpeed;
+
+      const sprite = this.add
+        .image(this.heroX, this.heroY, evolved ? 'vfx_celestial_blade' : 'vfx_cross')
+        .setDepth(17)
+        .setScale(this.stats.area * (evolved ? 1.28 : 1.05))
+        .setBlendMode(Phaser.BlendModes.ADD);
+
+      // Accelerates smoothly in reverse for classic boomerang return!
+      this.projectiles.push({
+        sprite,
+        x: this.heroX,
+        y: this.heroY,
+        vx,
+        vy,
+        accelX: -vx * 1.95,
+        accelY: -vy * 1.95,
+        gravity: 0,
+        spinSpeed: 12,
+        damage,
+        pierce: 99,
+        radius: (evolved ? 28 : 20) * this.stats.area,
+        life: 2.3,
+        crit: this.rollCrit(evolved),
+        lifeSteal: 0,
+        hitIds: new Set(),
       });
     }
   }
@@ -990,7 +1248,6 @@ export class ArenaScene extends Phaser.Scene {
       this.orbitalSprites.push(spr);
     }
 
-    // Smooth active/rest cycle unless evolved (Immortal Vesper never fades!)
     const cycle = (time * 0.001) % 5.0;
     const visibility = evolved
       ? 1
@@ -1005,9 +1262,8 @@ export class ArenaScene extends Phaser.Scene {
     const angularSpeed = evolved ? 4.4 : 2.7 + lv * 0.25;
     this.orbitalAngle += angularSpeed * dt;
     const orbitRadius = (evolved ? 118 : 84 + lv * 7) * this.stats.area * (0.4 + 0.6 * visibility);
-    const damage = (evolved ? 32 : 13 + lv * 5) * this.stats.might;
+    const damage = (evolved ? 34 : 14 + lv * 5) * this.stats.might;
 
-    // Tick down per-enemy orbital hit cooldowns
     for (const [enemyId, cd] of this.orbitalHitCooldowns.entries()) {
       if (cd - dt <= 0) this.orbitalHitCooldowns.delete(enemyId);
       else this.orbitalHitCooldowns.set(enemyId, cd - dt);
@@ -1052,13 +1308,12 @@ export class ArenaScene extends Phaser.Scene {
   private fireAxesOrScythes(lv: number, evolved: boolean): void {
     gothicAudio.playAxe();
     const count = (evolved ? 4 : 1 + Math.floor(lv / 2)) + this.stats.amount;
-    const damage = (evolved ? 54 : 28 + lv * 10) * this.stats.might;
+    const damage = (evolved ? 56 : 29 + lv * 10) * this.stats.might;
 
     for (let i = 0; i < count; i++) {
       if (evolved) {
-        // 360-degree outward flying Eclipse Scythes!
         const angle = (i / count) * Math.PI * 2 + this.elapsedSeconds * 0.9;
-        const speed = 320;
+        const speed = 330 * this.stats.projSpeed;
         const sprite = this.add
           .image(this.heroX, this.heroY, 'vfx_scythe')
           .setDepth(17)
@@ -1070,6 +1325,8 @@ export class ArenaScene extends Phaser.Scene {
           y: this.heroY,
           vx: Math.cos(angle) * speed,
           vy: Math.sin(angle) * speed,
+          accelX: 0,
+          accelY: 0,
           gravity: 0,
           spinSpeed: 11,
           damage,
@@ -1081,7 +1338,6 @@ export class ArenaScene extends Phaser.Scene {
           hitIds: new Set(),
         });
       } else {
-        // High-arc executioner axe (classic Vampire Survivors parabolic arc!)
         const spread = (i - (count - 1) / 2) * 75;
         const vx = this.facing * Phaser.Math.Between(95, 175) + spread;
         const vy = -Phaser.Math.Between(390, 470);
@@ -1095,13 +1351,15 @@ export class ArenaScene extends Phaser.Scene {
           y: this.heroY - 10,
           vx,
           vy,
+          accelX: 0,
+          accelY: 0,
           gravity: 780,
           spinSpeed: 9.5 * this.facing,
           damage,
           pierce: 3 + lv,
           radius: 21 * this.stats.area,
           life: 2.1,
-          crit: Math.random() < 0.3,
+          crit: this.rollCrit(Math.random() < 0.25),
           lifeSteal: 0,
           hitIds: new Set(),
         });
@@ -1120,7 +1378,7 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
-    const radius = (evolved ? 128 : 68 + lv * 11) * this.stats.area;
+    const radius = (evolved ? 132 : 70 + lv * 11) * this.stats.area;
     const pulse = 1 + Math.sin(time * 0.006) * 0.045;
     this.thuribleAura
       .setPosition(this.heroX, this.heroY + 4)
@@ -1129,7 +1387,7 @@ export class ArenaScene extends Phaser.Scene {
       .setAlpha(evolved ? 0.58 : 0.42)
       .setRotation(time * 0.0004);
 
-    const tickDamage = (evolved ? 19 : 6 + lv * 2.8) * this.stats.might;
+    const tickDamage = (evolved ? 20 : 6.5 + lv * 3) * this.stats.might;
     const candidates = this.grid.queryRadius(this.heroX, this.heroY, radius);
     for (const enemy of candidates) {
       enemy.auraContactTimer -= dt;
@@ -1149,12 +1407,12 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private fireLightningStrikes(lv: number, evolved: boolean): void {
-    const inRange = this.grid.queryRadius(this.heroX, this.heroY, 460);
+    const inRange = this.grid.queryRadius(this.heroX, this.heroY, 470);
     if (inRange.length === 0) return;
 
     const strikes = (evolved ? 4 : 1 + Math.floor(lv / 2)) + this.stats.amount;
-    const damage = (evolved ? 64 : 26 + lv * 9) * this.stats.might;
-    const blastRadius = (evolved ? 88 : 56 + lv * 6) * this.stats.area;
+    const damage = (evolved ? 66 : 28 + lv * 9) * this.stats.might;
+    const blastRadius = (evolved ? 90 : 58 + lv * 6) * this.stats.area;
 
     gothicAudio.playThunder();
 
@@ -1199,7 +1457,7 @@ export class ArenaScene extends Phaser.Scene {
 
         const victims = this.grid.queryRadius(tx, ty, blastRadius);
         for (const v of victims) {
-          this.damageEnemy(v, damage, 0, -60, evolved, 0);
+          this.damageEnemy(v, damage, 0, -60, this.rollCrit(evolved), 0);
         }
       });
     }
@@ -1209,7 +1467,8 @@ export class ArenaScene extends Phaser.Scene {
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const p = this.projectiles[i];
       p.life -= dt;
-      p.vy += p.gravity * dt;
+      p.vx += p.accelX * dt;
+      p.vy += (p.accelY + p.gravity) * dt;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       p.sprite.setPosition(p.x, p.y);
@@ -1227,7 +1486,7 @@ export class ArenaScene extends Phaser.Scene {
         const norm = Math.hypot(p.vx, p.vy) || 1;
         this.damageEnemy(
           enemy,
-          p.crit ? p.damage * 1.45 : p.damage,
+          p.crit ? p.damage * 1.55 : p.damage,
           (p.vx / norm) * 145,
           (p.vy / norm) * 145,
           p.crit,
@@ -1252,7 +1511,6 @@ export class ArenaScene extends Phaser.Scene {
       }
       if (e.dying) continue;
 
-      // Despawn regular enemies if way too far off-screen, reposition closer
       const dxHero = this.heroX - e.x;
       const dyHero = this.heroY - e.y;
       const distHero = Math.hypot(dxHero, dyHero) || 1;
@@ -1263,18 +1521,15 @@ export class ArenaScene extends Phaser.Scene {
         continue;
       }
 
-      // 1. Emergence Transition (0 -> 1)
       if (e.spawnProgress < 1) {
         e.spawnProgress = Math.min(1, e.spawnProgress + dt * 2.9);
       }
 
-      // 2. Steering + Boss Lunge Behavior
       let moveSpeed = e.def.speed;
       let dirX = dxHero / distHero;
       let dirY = dyHero / distHero;
 
-      if (e.kind === 'bat') {
-        // Sinuous swooping flight
+      if (e.kind === 'bat' || e.kind === 'banshee' || e.kind === 'magma_imp') {
         const perpX = -dirY;
         const perpY = dirX;
         const wave = Math.sin(time * 0.006 + e.animSeed) * 0.42;
@@ -1291,7 +1546,7 @@ export class ArenaScene extends Phaser.Scene {
         } else if (e.bossCharging) {
           dirX = e.bossChargeDirX;
           dirY = e.bossChargeDirY;
-          moveSpeed *= 2.45;
+          moveSpeed *= 2.4;
           if (e.bossChargeTimer <= 0) {
             e.bossCharging = false;
             e.bossChargeTimer = 3.8;
@@ -1299,7 +1554,6 @@ export class ArenaScene extends Phaser.Scene {
         }
       }
 
-      // Soft horde separation via SpatialGrid so enemies form lush dense crowds!
       const neighbors = this.grid.queryRadius(e.x, e.y, e.radius * 1.6);
       let sepX = 0;
       let sepY = 0;
@@ -1327,7 +1581,6 @@ export class ArenaScene extends Phaser.Scene {
       e.x += e.vx * dt;
       e.y += e.vy * dt;
 
-      // 3. Visual State, Hit Flash & Elastic Squash/Stretch
       const emergeEase = 1 - Math.pow(1 - e.spawnProgress, 3);
       let sx = e.def.scale * (0.45 + 0.55 * emergeEase);
       let sy = e.def.scale * (0.15 + 0.85 * emergeEase);
@@ -1359,15 +1612,12 @@ export class ArenaScene extends Phaser.Scene {
         .setFlipX(dxHero < 0)
         .setRotation((dxHero >= 0 ? 1 : -1) * 0.04 * Math.sin(time * 0.008 + e.animSeed));
 
-      e.shadow
-        .setPosition(e.x, e.y + 16 * e.def.scale)
-        .setAlpha(0.55 * emergeEase);
+      e.shadow.setPosition(e.x, e.y + 20 * e.def.scale).setAlpha(0.55 * emergeEase);
 
-      // 4. Contact Damage vs Hero
       if (e.spawnProgress >= 0.85 && this.invulnTimer <= 0) {
         const hitDist = e.radius + 14;
         if (dxHero * dxHero + dyHero * dyHero <= hitDist * hitDist) {
-          this.damageHero(e.def.damage);
+          this.damageHero(Math.round(e.def.damage * (0.85 + this.stageDef.difficultyMult * 0.15)));
         }
       }
     }
@@ -1392,7 +1642,7 @@ export class ArenaScene extends Phaser.Scene {
     enemy.knockVy += knockY * (1 - resist);
 
     gothicAudio.playHit();
-    this.spawnFloatingDamage(enemy.x, enemy.y - 14 * enemy.def.scale, dmg, isCrit);
+    this.spawnFloatingDamage(enemy.x, enemy.y - 16 * enemy.def.scale, dmg, isCrit);
 
     if (lifeSteal > 0 && this.hp < this.stats.maxHp) {
       this.hp = Math.min(this.stats.maxHp, this.hp + lifeSteal);
@@ -1406,21 +1656,20 @@ export class ArenaScene extends Phaser.Scene {
   private killEnemyElegantly(enemy: EnemyRuntime): void {
     enemy.dying = true;
     this.kills += 1;
-    this.inventory.souls += enemy.def.isBoss ? 50 : 1;
+    this.inventory.souls += enemy.def.isBoss ? 60 : 1;
 
-    // Drop XP Gem (and Golden Relic Chest if Boss!)
     this.spawnXpGem(enemy.x, enemy.y, enemy.def.xpValue, enemy.def.gemTier);
     if (enemy.def.isBoss) {
-      this.spawnRelicChest(enemy.x, enemy.y);
       this.cameras.main.shake(420, 0.009);
       this.spawnRingBurst(enemy.x, enemy.y, 0xffd166, 28);
 
-      if (enemy.kind === 'reaper') {
+      if (enemy.isFinalStageBoss) {
         this.time.delayedCall(650, () => this.finishRun(true));
+      } else {
+        this.spawnRelicChest(enemy.x, enemy.y);
       }
     }
 
-    // Dissolve transition: crimson-ash stretch + rising soul ember
     enemy.sprite.stop();
     enemy.sprite.setTint(0xff3b6b);
     this.spawnDeathEmbers(enemy.x, enemy.y, enemy.def.isBoss ? 14 : 4);
@@ -1429,7 +1678,7 @@ export class ArenaScene extends Phaser.Scene {
       targets: enemy.sprite,
       scaleX: enemy.def.scale * 0.25,
       scaleY: enemy.def.scale * 1.45,
-      y: enemy.y - 18,
+      y: enemy.y - 20,
       alpha: 0,
       duration: 240,
       ease: 'Quad.easeOut',
@@ -1452,7 +1701,6 @@ export class ArenaScene extends Phaser.Scene {
     xpValue: number,
     tier: 'sapphire' | 'amber' | 'ruby'
   ): void {
-    // Cap ground gems gracefully by merging into nearby gem if count is huge
     if (this.gems.length > 340) {
       const existing = this.gems[this.gems.length - 1];
       existing.xpValue += xpValue;
@@ -1460,9 +1708,7 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
-    const key = `gem_${tier}`;
-    const sprite = this.add.image(x, y, key).setDepth(5).setScale(0.2);
-
+    const sprite = this.add.image(x, y, `gem_${tier}`).setDepth(5).setScale(0.2);
     this.tweens.add({
       targets: sprite,
       scaleX: 0.92,
@@ -1479,8 +1725,6 @@ export class ArenaScene extends Phaser.Scene {
       xpValue,
       magnetized: false,
       magnetTime: 0,
-      originX: x,
-      originY: y,
       bobSeed: Math.random() * Math.PI * 2,
     });
   }
@@ -1518,20 +1762,16 @@ export class ArenaScene extends Phaser.Scene {
       if (!g.magnetized && dSq <= magnetSq) {
         g.magnetized = true;
         g.magnetTime = 0;
-        g.originX = g.x;
-        g.originY = g.y;
       }
 
       if (g.magnetized) {
         g.magnetTime += dt;
+        const dist = Math.sqrt(dSq) || 1;
         if (g.magnetTime < 0.11) {
-          // Signature Vampire Survivors initial pull-back kick!
-          const dist = Math.sqrt(dSq) || 1;
           g.x -= (dx / dist) * 120 * dt;
           g.y -= (dy / dist) * 120 * dt;
         } else {
-          const speed = 360 + (g.magnetTime - 0.11) * 950;
-          const dist = Math.sqrt(dSq) || 1;
+          const speed = 370 + (g.magnetTime - 0.11) * 960;
           g.x += (dx / dist) * speed * dt;
           g.y += (dy / dist) * speed * dt;
         }
@@ -1580,7 +1820,6 @@ export class ArenaScene extends Phaser.Scene {
     gothicAudio.playLevelUp();
     this.spawnRingBurst(this.heroX, this.heroY, 0xffd166, 22);
 
-    // Gentle shockwave pushes crowding enemies slightly back on level-up
     const nearby = this.grid.queryRadius(this.heroX, this.heroY, 150);
     for (const e of nearby) {
       const a = Math.atan2(e.y - this.heroY, e.x - this.heroX);
@@ -1651,8 +1890,8 @@ export class ArenaScene extends Phaser.Scene {
         targets: this.heroSprite,
         alpha: 0.25,
         angle: -35,
-        scaleX: 0.9,
-        scaleY: 0.9,
+        scaleX: 0.85,
+        scaleY: 0.85,
         duration: 620,
         ease: 'Cubic.easeOut',
       });
@@ -1662,6 +1901,7 @@ export class ArenaScene extends Phaser.Scene {
       this.callbacks?.onRunEnded({
         victory,
         heroId: this.heroId,
+        stageId: this.stageDef.id,
         elapsedSeconds: this.elapsedSeconds,
         level: this.inventory.level,
         kills: this.kills,
@@ -1673,13 +1913,13 @@ export class ArenaScene extends Phaser.Scene {
 
   private drawHeroHpBar(): void {
     this.trailingHp = Phaser.Math.Linear(this.trailingHp, this.hp, 0.14);
-    const barW = 46;
+    const barW = 48;
     const barH = 5;
     const bx = this.heroX - barW / 2;
-    const by = this.heroY + 30;
+    const by = this.heroY + 34;
 
     this.hpBarGraphics.clear();
-    this.hpBarGraphics.fillStyle(0x0d090e, 0.85);
+    this.hpBarGraphics.fillStyle(0x0d090e, 0.88);
     this.hpBarGraphics.fillRect(bx - 1, by - 1, barW + 2, barH + 2);
 
     const trailRatio = Phaser.Math.Clamp(this.trailingHp / this.stats.maxHp, 0, 1);
@@ -1710,7 +1950,7 @@ export class ArenaScene extends Phaser.Scene {
       alpha: 0,
       scaleX: isCrit ? 1.2 : 0.95,
       scaleY: isCrit ? 1.2 : 0.95,
-      duration: 460,
+      duration: 450,
       ease: 'Cubic.easeOut',
       onComplete: () => label.destroy(),
     });
@@ -1742,7 +1982,7 @@ export class ArenaScene extends Phaser.Scene {
         .image(x, y, 'vfx_particle')
         .setDepth(19)
         .setScale(Phaser.Math.FloatBetween(0.4, 0.85))
-        .setTint(i % 2 === 0 ? 0xff4d6d : 0xffd166)
+        .setTint(i % 2 === 0 ? 0xff4d6d : this.stageDef.palette.emberTint)
         .setBlendMode(Phaser.BlendModes.ADD);
       this.tweens.add({
         targets: p,
@@ -1781,13 +2021,6 @@ export class ArenaScene extends Phaser.Scene {
     }
   }
 
-  private currentPhaseName(): string {
-    if (this.elapsedSeconds < 90) return 'I · Crepúsculo Cinzento';
-    if (this.elapsedSeconds < 210) return 'II · Névoa das Dríades';
-    if (this.elapsedSeconds < 360) return 'III · Vigília Carmesim';
-    return 'IV · Eclipse Total';
-  }
-
   private pushHudUpdate(): void {
     let activeBoss: EnemyRuntime | undefined;
     for (const e of this.enemies) {
@@ -1804,10 +2037,12 @@ export class ArenaScene extends Phaser.Scene {
       xpToNext: this.inventory.xpToNext,
       level: this.inventory.level,
       elapsedSeconds: this.elapsedSeconds,
+      stageDurationSeconds: this.stageDef.durationSeconds,
       kills: this.kills,
       souls: this.inventory.souls,
-      dashReadyRatio: 1 - Phaser.Math.Clamp(this.dashCooldownTimer / 2.8, 0, 1),
-      phaseName: this.currentPhaseName(),
+      dashReadyRatio: 1 - Phaser.Math.Clamp(this.dashCooldownTimer / 2.6, 0, 1),
+      stageName: this.stageDef.name,
+      stageRoman: this.stageDef.roman,
       inventory: this.inventory,
       boss: activeBoss
         ? {

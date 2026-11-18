@@ -13,6 +13,30 @@ import {
 export const MAX_WEAPON_SLOTS = 6;
 export const MAX_RELIC_SLOTS = 6;
 
+export const ALL_BASE_WEAPONS: BaseWeaponId[] = [
+  'whip',
+  'wand',
+  'bible',
+  'axe',
+  'thurible',
+  'lightning',
+  'daggers',
+  'flask',
+  'cross',
+];
+
+export const ALL_RELICS: RelicId[] = [
+  'black_heart',
+  'empty_tome',
+  'amber_seal',
+  'crimson_candelabra',
+  'mercury_blood',
+  'duplicator_ring',
+  'assassin_gauntlet',
+  'twilight_orb',
+  'ash_clover',
+];
+
 export interface InventoryState {
   heroId: HeroId;
   level: number;
@@ -70,27 +94,31 @@ export function computeEffectiveStats(inv: InventoryState): HeroStats {
   const candLv = inv.relics.crimson_candelabra ?? 0;
   const bloodLv = inv.relics.mercury_blood ?? 0;
   const ringLv = inv.relics.duplicator_ring ?? 0;
+  const gauntletLv = inv.relics.assassin_gauntlet ?? 0;
+  const orbLv = inv.relics.twilight_orb ?? 0;
+  const cloverLv = inv.relics.ash_clover ?? 0;
 
   const kaelenBonusAmount = inv.heroId === 'kaelen' && inv.level >= 5 ? 1 : 0;
 
   return {
     maxHp: Math.round(base.maxHp * (1 + heartLv * 0.2)),
     moveSpeed: base.moveSpeed * (1 + sealLv * 0.05),
-    might: base.might + sealLv * 0.12,
-    area: base.area + candLv * 0.14,
-    cooldown: Math.max(0.38, base.cooldown * Math.pow(0.92, tomeLv)),
-    magnet: base.magnet * (1 + bloodLv * 0.2),
+    might: base.might + sealLv * 0.12 + orbLv * 0.1,
+    area: base.area + candLv * 0.14 + orbLv * 0.1,
+    cooldown: Math.max(0.36, base.cooldown * Math.pow(0.92, tomeLv)),
+    magnet: base.magnet * (1 + bloodLv * 0.2 + cloverLv * 0.15),
     armor: base.armor + bloodLv,
-    regen: base.regen + bloodLv * 0.7,
+    regen: base.regen + bloodLv * 0.8,
     amount: base.amount + ringLv + kaelenBonusAmount,
+    projSpeed: base.projSpeed + gauntletLv * 0.15,
+    critChance: Math.min(0.85, base.critChance + gauntletLv * 0.06 + cloverLv * 0.08),
   };
 }
 
 export function getAvailableEvolutions(inv: InventoryState): EvolvedWeaponId[] {
   const ready: EvolvedWeaponId[] = [];
-  const baseIds: BaseWeaponId[] = ['whip', 'wand', 'bible', 'axe', 'thurible', 'lightning'];
 
-  for (const baseId of baseIds) {
+  for (const baseId of ALL_BASE_WEAPONS) {
     const lv = inv.weapons[baseId] ?? 0;
     const def = WEAPONS[baseId];
     if (
@@ -115,10 +143,8 @@ export function buildUpgradeChoices(
   const ownedWeaponCount = Object.keys(inv.weapons).length;
   const ownedRelicCount = Object.keys(inv.relics).length;
 
-  const baseWeapons: BaseWeaponId[] = ['whip', 'wand', 'bible', 'axe', 'thurible', 'lightning'];
-  for (const wId of baseWeapons) {
+  for (const wId of ALL_BASE_WEAPONS) {
     const def = WEAPONS[wId];
-    // Skip base weapon if already evolved
     if (def.evolvesInto && inv.weapons[def.evolvesInto]) continue;
 
     const current = inv.weapons[wId] ?? 0;
@@ -142,21 +168,13 @@ export function buildUpgradeChoices(
       accentColor: def.iconColor,
       synergyHint: catalyst
         ? hasCatalyst
-          ? `✦ Ressonância ativa com ${catalyst.name}`
+          ? `✦ Ressonância pronta com ${catalyst.name}`
           : `Evolui com: ${catalyst.name}`
         : undefined,
     });
   }
 
-  const allRelics: RelicId[] = [
-    'black_heart',
-    'empty_tome',
-    'amber_seal',
-    'crimson_candelabra',
-    'mercury_blood',
-    'duplicator_ring',
-  ];
-  for (const rId of allRelics) {
+  for (const rId of ALL_RELICS) {
     const def = RELICS[rId];
     const current = inv.relics[rId] ?? 0;
     if (current >= def.maxLevel) continue;
@@ -180,12 +198,11 @@ export function buildUpgradeChoices(
       maxLevel: def.maxLevel,
       accentColor: def.iconColor,
       synergyHint: hasWeapon
-        ? `✦ Catalisador para ${synWeapon.name}`
+        ? `✦ Catalisador ativo p/ ${synWeapon.name}`
         : `Catalisa: ${synWeapon.name}`,
     });
   }
 
-  // Shuffle with slight weight preference toward owned items & synergy pairs
   const weighted = pool.map((choice) => {
     let weight = 1.0;
     if (choice.currentLevel > 0) weight += 0.65;
@@ -202,7 +219,7 @@ export function buildUpgradeChoices(
       kind: 'blessing',
       title: 'Cálice de Cinza Pura',
       subtitle: 'Bênção Perpétua',
-      description: 'Restaura 35 Pontos de Vida e concede +25 Estilhaços de Alma.',
+      description: 'Restaura 40 Pontos de Vida e concede +30 Estilhaços de Alma.',
       currentLevel: 0,
       nextLevel: 1,
       maxLevel: 1,
@@ -225,7 +242,7 @@ export function applyUpgradeChoice(
   } else if (choice.kind === 'relic' && choice.relicId) {
     inv.relics[choice.relicId] = choice.nextLevel;
     if (choice.relicId === 'black_heart') {
-      healedHp += 18;
+      healedHp += 20;
     }
   } else if (choice.kind === 'evolution' && choice.weaponId) {
     const evoDef = WEAPONS[choice.weaponId];
@@ -234,10 +251,10 @@ export function applyUpgradeChoice(
     }
     inv.weapons[choice.weaponId] = 1;
     evolvedWeapon = choice.weaponId as EvolvedWeaponId;
-    healedHp += 30;
-  } else if (choice.kind === 'blessing') {
     healedHp += 35;
-    inv.souls += 25;
+  } else if (choice.kind === 'blessing') {
+    healedHp += 40;
+    inv.souls += 30;
   }
 
   return { healedHp, evolvedWeapon };
@@ -265,7 +282,6 @@ export function resolveRelicChest(
     };
   }
 
-  // Otherwise upgrade an existing non-maxed weapon or relic
   const upgradable = buildUpgradeChoices(inv, 6, rng).filter((c) => c.currentLevel > 0);
   if (upgradable.length > 0) {
     return upgradable[Math.floor(rng() * upgradable.length)];

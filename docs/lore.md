@@ -1,4 +1,4 @@
-# Vespera: Eclipse Carmesim — Lore & Grimório Oficial
+# Vespera: Eclipse Carmesim — Lore Oficial & Atlas das Sete Regiões
 
 > *"Sete badaladas anunciaram o fim da alvorada. Sete cálices beberam o sangue do Sol. Agora, na noite que não conhece amanhã, apenas a cinza ainda queima."*
 > — **Crônicas do Último Conclave, Versículo IX**
@@ -7,65 +7,75 @@
 
 ## 1. O Mito da Queda: A Traição da Véspera
 
-Durante mil anos, o continente de **Vespera** prosperou sob a guarda do **Conclave Solar**, liderado pelos **Sete Cardeais Imortais**. Temendo a própria finitude diante do desgaste das eras, os Cardeais realizaram o ritual proibido na Catedral de Alabastro: cravaram sete lanças de obsidiana no coração da aurora, aprisionando o Sol atrás de um disco eterno de trevas e sangue — **O Eclipse Carmesim**.
+Durante mil anos, o continente de **Vespera** prosperou sob a guarda do **Conclave Solar**, sediado no grande Templo de Alabastro e governado pelos **Sete Cardeais Imortais**. Temendo o declínio de sua era e seduzidos pelo poder eterno do astro primordial, os Cardeais realizaram o ritual proibido: cravaram sete lanças de obsidiana no coração da aurora.
 
-O mundo ficou suspenso para sempre no instante crepuscular conhecido como **A Véspera**.
+O Sol não se apagou — ficou aprisionado atrás de um disco negro e sangrento conhecido como **O Eclipse Carmesim**. O mundo inteiro congelou no crepúsculo perpétuo chamado **A Véspera**.
 
-Porém, a luz divina não pôde ser totalmente digerida pelos traidores. Fragmentada em milhões de fagulhas, ela choveu sobre florestas ancestrais, cemitérios e vilarejos, cristalizando-se no interior das criaturas mortas e da fauna corrompida pela **Névoa Rubra**. Esses fragmentos tornaram-se conhecidos como **Gemas de Éter**.
-
----
-
-## 2. Os Juramentados da Cinza (Heróis Jogáveis)
-
-Quando os exércitos reais sucumbiram em horas diante das hordas intermináveis, restou apenas uma irmandade banida pela própria Igreja antes da Queda: **Os Juramentados da Cinza**. Marcados com runas que atraem e fundem o Éter dos caídos diretamente na própria alma, cada Juramentado entra sozinho na Floresta dos Lamentos para forjar em combate as armas capazes de abater os Cardeais.
-
-### I. Alaric Belmont — *O Flagelador da Cinza*
-- **Arma Inicial:** *Açoite Consagrado*
-- **Arquétipo:** Caçador de Relíquias equilibrado, letal em controle de multidões horizontais.
-- **História:** Último herdeiro de uma linhagem de inquisidores renegados. Carrega o chicote trançado em prata lunar e cinzas de santos mártires. Cada estalo abre uma fenda luminosa na névoa.
-- **Bônus Inato:** `+15% Área de Ataque` e `+20 Vida Máxima`.
-
-### II. Seraphina de Noctis — *A Tecelã Astral*
-- **Arma Inicial:** *Cetro de Estilhaços*
-- **Arquétipo:** Arcanista ágil, foca automaticamente nas ameaças mais próximas com cadência elevada.
-- **História:** Antiga astrônoma da Torre de Marfim que arrancou os próprios olhos ao testemunhar a ruptura do Sol, passando a enxergar o fluxo puro do Éter no escuro.
-- **Bônus Inato:** `+15% Velocidade de Movimento`, `-12% Tempo de Recarga` e `+25% Raio de Coleta`.
-
-### III. Sor Kaelen — *O Penitente de Ferro*
-- **Arma Inicial:** *Machado do Carrasco*
-- **Arquétipo:** Colosso blindado de alto impacto crítico e arcos devastadores.
-- **História:** Ex-capitão da Guarda Cardeal que se recusou a fechar os portões da capital contra os refugiados. Amaldiçoado a vagar em sua armadura rachada até expiar o sangue derramado por seus antigos mestres.
-- **Bônus Inato:** `+3 Armadura`, `+20% Poder de Dano` e `+1 Projétil Inicial` no nível 5.
+Das feridas abertas no céu escorreram milhões de fagulhas divinas que caíram sobre florestas, castelos, masmorras, desertos e metrópoles, cristalizando-se no sangue das criaturas corrompidas na forma das **Gemas de Éter** (Safiras, Âmbares e Rubis).
 
 ---
 
-## 3. Arsenal Sagrado, Relíquias e Evoluções (Sinergias)
+## 2. Os Juramentados da Cinza (4 Heróis Jogáveis)
 
-No olho do furacão, os Juramentados coletam até **6 Armas Ativas** e **6 Relíquias Passivas**. Quando uma Arma alcança seu **Nível Máximo (Nv. 5)** e o herói possui a **Relíquia Catalisadora** correspondente, abrir um **Relicário Dourado (Baú de Chefe)** transmuta a arma em uma **Evolução Ancestral**:
+Banidos pela própria Igreja antes da Queda por alertarem sobre a heresia do Conclave, os **Juramentados da Cinza** são os únicos capazes de absorver as Gemas de Éter em combate e transmutar relíquias em Armas Ancestrais:
 
-| Arma Sagrada | Comportamento | Relíquia Catalisadora | Evolução Ancestral | Efeito Transmutado |
-| :--- | :--- | :--- | :--- | :--- |
-| **Açoite Consagrado** | Cortes horizontais elegantes em meia-lua à frente (e atrás nos níveis altos). | **Coração Negro** *(+Vida Máx)* | **Rosa Sangrenta** | Cortes cruzados carmesins gigantes que causam crítico e **drenam vida** a cada golpe. |
-| **Cetro de Estilhaços** | Dispara lanças astrais teleguiadas contra o inimigo mais próximo. | **Tomo Vazio** *(-Recarga)* | **Torrente Estelar** | Rajada ininterrupta de cometas perfurantes sem intervalo de recarga. |
-| **Bíblia das Cinzas** | Escrituras ardentes orbitam o herói, repelindo quem tenta cercá-lo. | **Selo de Âmbar** *(+Área/Órbita)* | **Véspera Imortal** | Anel perpétuo de seis grimórios dourados em alta rotação que nunca se apaga. |
-| **Machado do Carrasco** | Arremesso parabólico pesado de altíssimo dano que atravessa fileiras. | **Candelabro Rubro** *(+Área)* | **Foice do Eclipse** | Dispara foices espectrais em espiral 360° que varrem toda a arena. |
-| **Turíbulo Sagrado** | Pulsa uma aura mística ao redor do herói, queimando e desacelerando enxames. | **Sangue de Mercúrio** *(+Regen)* | **Mortalha Devoradora** | Aura rubra expansiva que drena vitalidade da horda e fortalece o herói. |
-| **Anel do Trovão Rubro** | Invoca relâmpagos escarlates do céu sobre inimigos aleatórios com dano em área. | **Anel Duplicador** *(+Projéteis)* | **Julgamento dos Sete** | Tempestade dupla: cada raio ricocheteia e deixa solo eletrificado. |
+1. **Alaric Belmont — *O Flagelador da Cinza***
+   - **Arma Inicial:** *Açoite Consagrado* (`whip`)
+   - **História:** Último inquisidor renegado de Valen. Seu chicote de prata lunar foi banhado nas cinzas dos santos mártires que recusaram ajoelhar-se perante os Cardeais.
+2. **Seraphina de Noctis — *A Tecelã Astral***
+   - **Arma Inicial:** *Cetro de Estilhaços* (`wand`)
+   - **História:** Antiga astrônoma da Torre de Marfim que perdeu a visão mortal ao testemunhar a perfuração do Sol, enxergando hoje o fluxo puro do Éter na escuridão.
+3. **Sor Kaelen — *O Penitente de Ferro***
+   - **Arma Inicial:** *Machado do Carrasco* (`axe`)
+   - **História:** Ex-capitão da Guarda Cardeal amaldiçoado por se recusar a trancar os portões de Solaris contra os refugiados durante a noite da queda.
+4. **Irmã Valéria — *A Justiciera de Alabastro***
+   - **Arma Inicial:** *Cruz do Julgamento* (`cross`)
+   - **História:** Última guerreira do coro sagrado de Alabastro. Arremessa cruzes rúnicas douradas que cortam as trevas e retornam carregando o fogo do julgamento.
 
 ---
 
-## 4. Bestiário da Floresta dos Lamentos
+## 3. A Peregrinação das Sete Fases (Atlas do Jogo)
 
-À medida que o relógio da Véspera avança rumo ao ápice do Eclipse, a atmosfera da **Floresta dos Lamentos** se transforma gradualmente — da neblina azulada crepuscular ao brilho opressivo da Lua de Sangue:
+A jornada rumo à libertação do Sol atravessa **sete domínios progressivamente mais mortais**:
 
-1. **Morcegos de Sangue (`00:00+`)** — Enxames velozes que surgem em revoadas sinuosas das copas mortas. Frágeis, mas numerosos.
-2. **Flagelados da Cinza (`00:30+`)** — Peregrinos reanimados pela Névoa Rubra. Marcham incansavelmente em direção ao calor da alma viva.
-3. **Dríades Espinhosas (`02:00+`)** — Espíritos silvestres corrompidos de manto verde-musgo que cercam a presa em grandes círculos coordenados.
-4. **Corcéis da Névoa (`03:30+`)** — Montarias fantasmagóricas velozes que cruzam o campo em manadas cerradas.
-5. **Acólitos Carmesins (`05:00+`)** — Sacerdotes flutuantes do Conclave que entoam cânticos sombrios e resistem a recuos leves.
-6. **Cavaleiros Ocos (`07:00+`)** — Armaduras negras animadas por rancor puro; muralhas ambulantes que protegem a horda.
+### Fase I — Floresta dos Lamentos *(Floresta Amaldiçoada)*
+- **Ambiente:** Bosque ancestral de carvalhos retorcidos, névoa azul-esverdeada, trilha de pedra musgosa e braseiros.
+- **Hordas:** Morcegos Vampíricos, Zelotes Flagelados, Dríades de Espinhos e Corcéis Pesadelo.
+- **Guardião:** **Fenrir da Lua Podre** — lobisomem alfa colossal marcado por lâminas de prata.
+- **Lore:** A fronteira silvestre onde os primeiros peregrinos sucumbiram quando o céu escureceu.
 
-### Os Senhores do Eclipse (Chefes & Guardiões de Relicários)
-- **Fenrir da Lua Podre (Guardião Feral)** — Um lobisomem colossal cicatrizado por lâminas de prata. Avança em investidas brutais com rugidos que estremecem a terra.
-- **Cardeal Malakor, o Primeiro Traidor (Senhor Vampiro)** — Flutua em manto escarlate, invocando círculos de morcegos e explosões de sangue consagrado.
-- **O Ceifador Carmesim (Avatar da Meia-Noite)** — Quando o Eclipse se fecha por completo, a própria personificação da Véspera desce sobre o campo para cobrar todas as almas roubadas.
+### Fase II — Castelo Assombrado de Valen *(Castelo Abandonado Assombrado)*
+- **Ambiente:** Salões de mármore xadrez rachado, tapete imperial carmesim, candelabros espectrais e vitrais estilhaçados.
+- **Hordas:** Damas Espectrais (Banshees), Cavaleiros Ocos, Morcegos Vampíricos e Serafins Profanados.
+- **Guardiã:** **Condessa Carmilla de Valen** — matriarca vampira que reina sobre os bailes fantasmas da nobreza caída.
+- **Lore:** A antiga fortaleza real de Valen, abandonada na noite do Eclipse e assombrada por toda a corte.
+
+### Fase III — Masmorras da Inquisição *(Masmorra Subterrânea)*
+- **Ambiente:** Lajes úmidas cobertas de lodo, jaulas de ferro suspensas, correntes e fogo alquímico esmeralda.
+- **Hordas:** Esqueletos Acorrentados, Carcereiros de Ferro, Zelotes e Alquimistas da Peste.
+- **Guardião:** **Morghul, o Carcereiro de Ossos** — abominação forjada com as correntes e ossadas de mil prisioneiros.
+- **Lore:** Os calabouços subterrâneos onde o Conclave torturou aqueles que descobriram a conspiração contra a aurora.
+
+### Fase IV — Deserto das Crateras Rubras *(Deserto com Vulcões)*
+- **Ambiente:** Dunas de areia vulcânica negra, monólitos de obsidiana, fissuras incandescentes e rios de magma sob vulcões ativos.
+- **Hordas:** Gárgulas de Magma, Colossos de Basalto, Esqueletos Carbonizados e Corcéis Cinzentos.
+- **Guardião:** **Ignis, Titã da Cratera** — colosso primordial de rocha derretida despertado pelo sangue solar.
+- **Lore:** Onde gotas incandescentes do Sol perfurado tocaram a terra, evaporando o antigo Mar do Sul em uma cadeia de vulcões eternos.
+
+### Fase V — Metrópole Devastada de Solaris *(Metrópole Medieval Devastada)*
+- **Ambiente:** Avenidas imperiais bombardeadas, barricadas de cerco em chamas, aquedutos ruídos e cinzas urbanas.
+- **Hordas:** Zelotes Empesteados, Alquimistas da Peste, Cavaleiros Ocos e Cavalaria Fantasma.
+- **Guardião:** **Marechal Vane de Solaris** — antigo comandante supremo da capital, condenado a vigiar suas ruínas.
+- **Lore:** O coração civilizatório da humanidade reduzido a escombros fumegantes e tomado pela própria guarnição reanimada.
+
+### Fase VI — Templo Profanado de Alabastro *(Templo Religioso Dessecrado)*
+- **Ambiente:** Colunatas brancas manchadas de sombra, altar solar partido, estátuas de anjos chorando sangue e runas ocultistas.
+- **Hordas:** Serafins Profanados, Cavaleiros Ocos, Damas Espectrais e Carcereiros Sagrados.
+- **Guardião:** **Arcebispo Malakor, o Traidor** — líder dos Sete Cardeais e guardião das chaves do abismo.
+- **Lore:** O santuário outrora mais sagrado do mundo, hoje invertido em um monumento blasfemo que drena a luz do Sol.
+
+### Fase VII — O Inferno Rubro *(O Inferno / Nono Círculo)*
+- **Ambiente:** Pontes de enxofre negro e arcos de costelas titânicas sobre abismos de fogo carmesim sob o vórtice direto do Eclipse.
+- **Hordas:** Demônios do Abismo, Colossos de Magma, Serafins Caídos e Guarda Abissal.
+- **Guardião Final:** **O Ceifador Carmesim** — a própria personificação da morte eterna e carcereiro final da alvorada.
+- **Lore:** Sob as fundações partidas do Templo de Alabastro abre-se o próprio Inferno; derrotar o Ceifador estilhaça as sete lanças e devolve o amanhecer a Vespera.

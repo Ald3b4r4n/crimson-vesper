@@ -1,49 +1,30 @@
-import { createHeroPortraitDataUrl } from '../art/SpriteForge';
 import { gothicAudio } from '../audio/GothicAudio';
 import {
+  ENEMIES,
   HEROES,
   HeroId,
   LORE_CHAPTERS,
   RELICS,
   RelicId,
+  StageId,
+  STAGES,
   WEAPONS,
   WeaponId,
 } from '../data/loreData';
-import { UpgradeChoice } from '../game/UpgradeLogic';
+import { ALL_BASE_WEAPONS, ALL_RELICS, UpgradeChoice } from '../game/UpgradeLogic';
 import { ArenaCallbacks, HudSnapshot, RunSummary } from '../scenes/ArenaScene';
 
-const RECORDS_STORAGE_KEY = 'crimson_vesper.records.v1';
+const RECORDS_STORAGE_KEY = 'crimson_vesper.records.v2';
 
 interface SavedRecords {
   bestSeconds: number;
   bestKills: number;
   totalSouls: number;
   victories: number;
+  clearedStages: StageId[];
 }
 
-const WEAPON_GLYPHS: Record<WeaponId, string> = {
-  whip: '〰',
-  wand: '✦',
-  bible: '❖',
-  axe: '🪓',
-  thurible: '❂',
-  lightning: '⚡',
-  blood_rose: '🌹',
-  star_torrent: '☄',
-  immortal_vesper: '☀',
-  eclipse_scythe: '🌙',
-  devouring_shroud: '◉',
-  seven_judgment: '🌩',
-};
-
-const RELIC_GLYPHS: Record<RelicId, string> = {
-  black_heart: '♥',
-  empty_tome: '📖',
-  amber_seal: '◈',
-  crimson_candelabra: '🕯',
-  mercury_blood: '💧',
-  duplicator_ring: '◎',
-};
+type HubTab = 'play' | 'powers' | 'lore';
 
 function formatClock(totalSeconds: number): string {
   const s = Math.max(0, Math.floor(totalSeconds));
@@ -56,7 +37,10 @@ export class UIManager {
   private readonly root: HTMLElement;
   private readonly curtain: HTMLElement;
   private selectedHero: HeroId = 'alaric';
-  private onStartRun: (heroId: HeroId, callbacks: ArenaCallbacks) => void;
+  private selectedStage: StageId = 'forest';
+  private activeTab: HubTab = 'play';
+
+  private onStartRun: (heroId: HeroId, stageId: StageId, callbacks: ArenaCallbacks) => void;
   private onSetVirtualJoystick: (dx: number, dy: number) => void;
   private onTriggerDash: () => void;
   private onTogglePause: () => void;
@@ -87,7 +71,7 @@ export class UIManager {
   constructor(
     root: HTMLElement,
     hooks: {
-      onStartRun: (heroId: HeroId, callbacks: ArenaCallbacks) => void;
+      onStartRun: (heroId: HeroId, stageId: StageId, callbacks: ArenaCallbacks) => void;
       onSetVirtualJoystick: (dx: number, dy: number) => void;
       onTriggerDash: () => void;
       onTogglePause: () => void;
@@ -120,12 +104,13 @@ export class UIManager {
           bestKills: Number(parsed.bestKills) || 0,
           totalSouls: Number(parsed.totalSouls) || 0,
           victories: Number(parsed.victories) || 0,
+          clearedStages: Array.isArray(parsed.clearedStages) ? parsed.clearedStages : [],
         };
       }
     } catch {
-      // ignore storage errors
+      // ignore
     }
-    return { bestSeconds: 0, bestKills: 0, totalSouls: 0, victories: 0 };
+    return { bestSeconds: 0, bestKills: 0, totalSouls: 0, victories: 0, clearedStages: [] };
   }
 
   private saveRunRecord(summary: RunSummary): void {
@@ -133,7 +118,12 @@ export class UIManager {
     rec.bestSeconds = Math.max(rec.bestSeconds, Math.floor(summary.elapsedSeconds));
     rec.bestKills = Math.max(rec.bestKills, summary.kills);
     rec.totalSouls += summary.souls;
-    if (summary.victory) rec.victories += 1;
+    if (summary.victory) {
+      rec.victories += 1;
+      if (!rec.clearedStages.includes(summary.stageId)) {
+        rec.clearedStages.push(summary.stageId);
+      }
+    }
     try {
       localStorage.setItem(RECORDS_STORAGE_KEY, JSON.stringify(rec));
     } catch {
@@ -148,21 +138,26 @@ export class UIManager {
       window.setTimeout(() => {
         this.curtain.classList.remove('active');
       }, 90);
-    }, 340);
+    }, 320);
   }
 
   renderTitleScreen(): void {
     this.clearKeyPickHandler();
     const rec = this.loadRecords();
-    const heroIds: HeroId[] = ['alaric', 'seraphina', 'kaelen'];
 
     const screen = document.createElement('div');
     screen.className = 'title-screen';
     screen.dataset.testid = 'title-screen';
 
-    const sun = document.createElement('div');
-    sun.className = 'eclipse-sun';
-    screen.appendChild(sun);
+    const bgArt = document.createElement('div');
+    bgArt.className = 'title-bg-art';
+    bgArt.style.backgroundImage = "url('./art/intro-cover.jpg')";
+    const bgVignette = document.createElement('div');
+    bgVignette.className = 'title-bg-vignette';
+    screen.append(bgArt, bgVignette);
+
+    const scrollBody = document.createElement('div');
+    scrollBody.className = 'title-scroll-body';
 
     const header = document.createElement('div');
     header.className = 'title-header';
@@ -171,45 +166,54 @@ export class UIManager {
       <h1 class="title-main">VESPERA</h1>
       <p class="title-sub">Eclipse Carmesim</p>
     `;
-    screen.appendChild(header);
+    scrollBody.appendChild(header);
 
-    const grid = document.createElement('div');
-    grid.className = 'hero-grid';
-
-    for (const hId of heroIds) {
-      const hero = HEROES[hId];
-      const weapon = WEAPONS[hero.startingWeapon];
-      const card = document.createElement('button');
-      card.type = 'button';
-      card.dataset.testid = `hero-card-${hId}`;
-      card.className = `hero-card ${this.selectedHero === hId ? 'selected' : ''}`;
-      const portraitUrl = createHeroPortraitDataUrl(hId);
-
-      card.innerHTML = `
-        <div class="hero-card-top">
-          <img class="hero-portrait" src="${portraitUrl}" alt="${hero.name}" />
-          <div>
-            <h3 class="hero-name">${hero.name}</h3>
-            <div class="hero-epithet">${hero.epithet}</div>
-            <span class="hero-weapon-pill">${WEAPON_GLYPHS[hero.startingWeapon]} ${weapon.name}</span>
-          </div>
-        </div>
-        <div class="hero-perk">${hero.perkSummary}</div>
-        <p class="hero-lore">${hero.lore}</p>
-      `;
-
-      card.addEventListener('click', () => {
-        this.selectedHero = hId;
-        grid.querySelectorAll('.hero-card').forEach((el) => el.classList.remove('selected'));
-        card.classList.add('selected');
+    // Navigation Tabs
+    const tabs = document.createElement('div');
+    tabs.className = 'hub-tabs';
+    const tabDefs: Array<{ id: HubTab; label: string; testId: string }> = [
+      { id: 'play', label: '⚔ Vigília & 7 Fases', testId: 'tab-play' },
+      { id: 'powers', label: '✦ Lista de Poderes (27)', testId: 'tab-powers' },
+      { id: 'lore', label: '📜 Grimório & Lore', testId: 'tab-lore' },
+    ];
+    for (const t of tabDefs) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.dataset.testid = t.testId;
+      btn.className = `hub-tab-btn ${this.activeTab === t.id ? 'active' : ''}`;
+      btn.textContent = t.label;
+      btn.addEventListener('click', () => {
+        this.activeTab = t.id;
+        this.renderTitleScreen();
       });
-      grid.appendChild(card);
+      tabs.appendChild(btn);
     }
-    screen.appendChild(grid);
+    scrollBody.appendChild(tabs);
 
-    const actionsWrap = document.createElement('div');
-    const actions = document.createElement('div');
-    actions.className = 'title-actions';
+    const contentHost = document.createElement('div');
+    contentHost.className = 'hub-section';
+
+    if (this.activeTab === 'play') {
+      this.populatePlayTab(contentHost, rec, () => this.updateFooterSummary(footerSummary));
+    } else if (this.activeTab === 'powers') {
+      this.populatePowersTab(contentHost);
+    } else {
+      this.populateLoreTab(contentHost);
+    }
+
+    scrollBody.appendChild(contentHost);
+    screen.appendChild(scrollBody);
+
+    // Sticky Footer Action Bar
+    const footer = document.createElement('div');
+    footer.className = 'title-footer-bar';
+
+    const footerSummary = document.createElement('div');
+    footerSummary.className = 'selection-summary';
+    this.updateFooterSummary(footerSummary);
+
+    const footerBtns = document.createElement('div');
+    footerBtns.className = 'footer-buttons';
 
     const startBtn = document.createElement('button');
     startBtn.type = 'button';
@@ -218,94 +222,230 @@ export class UIManager {
     startBtn.textContent = 'Iniciar Vigília';
     startBtn.addEventListener('click', () => this.beginArenaRun());
 
-    const loreBtn = document.createElement('button');
-    loreBtn.type = 'button';
-    loreBtn.className = 'btn-gothic secondary';
-    loreBtn.dataset.testid = 'open-lore-btn';
-    loreBtn.textContent = 'Grimório & Lore';
-    loreBtn.addEventListener('click', () => this.openLoreModal(screen));
-
     const muteBtn = document.createElement('button');
     muteBtn.type = 'button';
     muteBtn.className = 'btn-gothic secondary';
-    muteBtn.textContent = gothicAudio.isMuted() ? 'Áudio: Mudo' : 'Áudio: Ativo';
+    muteBtn.textContent = gothicAudio.isMuted() ? '🔇 Mudo' : '🔊 Áudio';
     muteBtn.addEventListener('click', () => {
-      const muted = gothicAudio.toggleMute();
-      muteBtn.textContent = muted ? 'Áudio: Mudo' : 'Áudio: Ativo';
+      const m = gothicAudio.toggleMute();
+      muteBtn.textContent = m ? '🔇 Mudo' : '🔊 Áudio';
     });
 
-    actions.append(startBtn, loreBtn, muteBtn);
-    actionsWrap.appendChild(actions);
-
-    const recordsBar = document.createElement('div');
-    recordsBar.className = 'records-bar';
-    recordsBar.innerHTML = `
-      Melhor Tempo: <strong>${formatClock(rec.bestSeconds)}</strong> ·
-      Recorde de Abates: <strong>${rec.bestKills}</strong> ·
-      Almas Colhidas: <strong>${rec.totalSouls}</strong> ·
-      Eclipses Vencidos: <strong>${rec.victories}</strong>
-    `;
-    actionsWrap.appendChild(recordsBar);
-    screen.appendChild(actionsWrap);
+    footerBtns.append(startBtn, muteBtn);
+    footer.append(footerSummary, footerBtns);
+    screen.appendChild(footer);
 
     this.root.replaceChildren(screen);
   }
 
-  private openLoreModal(parent: HTMLElement): void {
-    const backdrop = document.createElement('div');
-    backdrop.className = 'modal-backdrop';
-    backdrop.dataset.testid = 'lore-modal';
-
-    const chaptersHtml = LORE_CHAPTERS.map(
-      (ch) => `
-      <div class="lore-section">
-        <h4>${ch.title} — <small style="color:#b8a9b5">${ch.subtitle}</small></h4>
-        <p>${ch.body}</p>
+  private updateFooterSummary(container: HTMLElement): void {
+    const hero = HEROES[this.selectedHero];
+    const stage = STAGES.find((s) => s.id === this.selectedStage) ?? STAGES[0];
+    const rec = this.loadRecords();
+    container.innerHTML = `
+      <div class="selection-main">
+        ${hero.name} · Fase ${stage.roman}: ${stage.name}
       </div>
-    `
-    ).join('');
-
-    const synergiesHtml = (['whip', 'wand', 'bible', 'axe', 'thurible', 'lightning'] as const)
-      .map((wId) => {
-        const w = WEAPONS[wId];
-        const r = w.catalystRelic ? RELICS[w.catalystRelic] : null;
-        const evo = w.evolvesInto ? WEAPONS[w.evolvesInto] : null;
-        return `
-          <div style="font-size:0.84rem; padding:4px 0; color:#e2d7e0;">
-            <strong style="color:${w.iconColor}">${WEAPON_GLYPHS[wId]} ${w.name} (Nv.5)</strong>
-            + <span>${r ? `${RELIC_GLYPHS[r.id]} ${r.name}` : ''}</span>
-            ➔ <strong style="color:#ffd166">${evo ? `${WEAPON_GLYPHS[evo.id]} ${evo.name}` : ''}</strong>
-          </div>
-        `;
-      })
-      .join('');
-
-    backdrop.innerHTML = `
-      <div class="modal-panel">
-        <h2 class="modal-title">Grimório da Véspera</h2>
-        <p class="modal-subtitle">Os Segredos do Conclave Caído e das Armas Ancestrais</p>
-        ${chaptersHtml}
-        <div class="lore-section" style="border-bottom:none">
-          <h4>IV. Tábuas de Transmutação (Evoluções em Baús)</h4>
-          ${synergiesHtml}
-        </div>
-        <div style="margin-top:18px">
-          <button type="button" class="btn-gothic secondary" data-close-lore>Fechar Grimório</button>
-        </div>
+      <div class="selection-sub">
+        Regiões Purificadas: <strong>${rec.clearedStages.length}/7</strong> ·
+        Recorde de Abates: <strong>${rec.bestKills}</strong> ·
+        Almas: <strong>${rec.totalSouls}</strong>
       </div>
     `;
+  }
 
-    backdrop.querySelector('[data-close-lore]')?.addEventListener('click', () => backdrop.remove());
-    backdrop.addEventListener('click', (ev) => {
-      if (ev.target === backdrop) backdrop.remove();
-    });
-    parent.appendChild(backdrop);
+  private populatePlayTab(
+    host: HTMLElement,
+    rec: SavedRecords,
+    onSelectionChange: () => void
+  ): void {
+    const heroHeading = document.createElement('div');
+    heroHeading.className = 'section-heading';
+    heroHeading.textContent = '1. Escolha seu Juramentado da Cinza';
+    host.appendChild(heroHeading);
+
+    const heroGrid = document.createElement('div');
+    heroGrid.className = 'hero-grid';
+    const heroIds: HeroId[] = ['alaric', 'seraphina', 'kaelen', 'valeria'];
+
+    for (const hId of heroIds) {
+      const hero = HEROES[hId];
+      const weapon = WEAPONS[hero.startingWeapon];
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.dataset.testid = `hero-card-${hId}`;
+      card.className = `hero-card ${this.selectedHero === hId ? 'selected' : ''}`;
+
+      card.innerHTML = `
+        <div class="hero-card-top">
+          <img class="hero-portrait" src="${hero.portraitUrl}" alt="${hero.name}" loading="eager" />
+          <div>
+            <h3 class="hero-name">${hero.name}</h3>
+            <div class="hero-epithet">${hero.epithet}</div>
+            <span class="hero-weapon-pill">${weapon.glyph} ${weapon.name}</span>
+          </div>
+        </div>
+        <div class="hero-perk">${hero.perkSummary}</div>
+        <p class="hero-lore">${hero.lore}</p>
+      `;
+
+      card.addEventListener('click', () => {
+        this.selectedHero = hId;
+        heroGrid.querySelectorAll('.hero-card').forEach((el) => el.classList.remove('selected'));
+        card.classList.add('selected');
+        onSelectionChange();
+      });
+      heroGrid.appendChild(card);
+    }
+    host.appendChild(heroGrid);
+
+    const stageHeading = document.createElement('div');
+    stageHeading.className = 'section-heading';
+    stageHeading.textContent = '2. Escolha a Região da Peregrinação (7 Fases)';
+    host.appendChild(stageHeading);
+
+    const stageGrid = document.createElement('div');
+    stageGrid.className = 'stage-grid';
+
+    for (const st of STAGES) {
+      const cleared = rec.clearedStages.includes(st.id);
+      const bossName = ENEMIES[st.finalBoss].name;
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.dataset.testid = `stage-card-${st.id}`;
+      card.className = `stage-card ${this.selectedStage === st.id ? 'selected' : ''}`;
+
+      card.innerHTML = `
+        <div class="stage-banner-wrap">
+          <img class="stage-banner-img" src="${st.bannerUrl}" alt="${st.name}" loading="lazy" />
+          <span class="stage-roman-badge">FASE ${st.roman}</span>
+          ${cleared ? `<span class="stage-crown-badge">👑 Purificada</span>` : ''}
+        </div>
+        <div class="stage-card-body">
+          <h4 class="stage-title">${st.name}</h4>
+          <div class="stage-threat">${st.threatLabel} · Guardião: ${bossName}</div>
+          <p class="stage-desc">${st.lore}</p>
+        </div>
+      `;
+
+      card.addEventListener('click', () => {
+        this.selectedStage = st.id;
+        stageGrid.querySelectorAll('.stage-card').forEach((el) => el.classList.remove('selected'));
+        card.classList.add('selected');
+        onSelectionChange();
+      });
+      stageGrid.appendChild(card);
+    }
+    host.appendChild(stageGrid);
+  }
+
+  private populatePowersTab(host: HTMLElement): void {
+    const h1 = document.createElement('div');
+    h1.className = 'section-heading';
+    h1.textContent = 'Armas Sagradas (9) & Suas Evoluções Ancestrais (9)';
+    host.appendChild(h1);
+
+    const weaponGrid = document.createElement('div');
+    weaponGrid.className = 'codex-grid';
+
+    for (const wId of ALL_BASE_WEAPONS) {
+      const w = WEAPONS[wId];
+      const cat = w.catalystRelic ? RELICS[w.catalystRelic] : null;
+      const evo = w.evolvesInto ? WEAPONS[w.evolvesInto] : null;
+
+      const card = document.createElement('div');
+      card.className = 'codex-card';
+      card.innerHTML = `
+        <div class="codex-card-head">
+          <h4 class="codex-title" style="color:${w.iconColor}">${w.glyph} ${w.name}</h4>
+          <span class="codex-cat">${w.category}</span>
+        </div>
+        <p class="codex-desc">${w.tagline}</p>
+        <p class="codex-desc" style="color:#b8a9b5; font-size:0.75rem">Como funciona: ${w.mechanicSummary}</p>
+        ${
+          evo && cat
+            ? `<div class="codex-formula">
+                <strong>Evolução (Baú no Nv.5):</strong> + ${cat.glyph} ${cat.name} ➔
+                <span style="color:${evo.iconColor}">${evo.glyph} ${evo.name}</span>
+                <div style="color:#d8ccd6; margin-top:2px">${evo.tagline}</div>
+              </div>`
+            : ''
+        }
+      `;
+      weaponGrid.appendChild(card);
+    }
+    host.appendChild(weaponGrid);
+
+    const h2 = document.createElement('div');
+    h2.className = 'section-heading';
+    h2.textContent = 'Relíquias Passivas & Catalisadores (9)';
+    host.appendChild(h2);
+
+    const relicGrid = document.createElement('div');
+    relicGrid.className = 'codex-grid';
+
+    for (const rId of ALL_RELICS) {
+      const r = RELICS[rId];
+      const synW = WEAPONS[r.synergyWeapon];
+      const card = document.createElement('div');
+      card.className = 'codex-card';
+      card.innerHTML = `
+        <div class="codex-card-head">
+          <h4 class="codex-title" style="color:${r.iconColor}">${r.glyph} ${r.name}</h4>
+          <span class="codex-cat">Máx Nv.${r.maxLevel}</span>
+        </div>
+        <p class="codex-desc">${r.bonusPerLevel}</p>
+        <div class="codex-formula">Catalisador da arma: <strong>${synW.glyph} ${synW.name}</strong></div>
+      `;
+      relicGrid.appendChild(card);
+    }
+    host.appendChild(relicGrid);
+  }
+
+  private populateLoreTab(host: HTMLElement): void {
+    const h1 = document.createElement('div');
+    h1.className = 'section-heading';
+    h1.textContent = 'O Mito do Eclipse Carmesim';
+    host.appendChild(h1);
+
+    const loreGrid = document.createElement('div');
+    loreGrid.className = 'codex-grid';
+    for (const ch of LORE_CHAPTERS) {
+      const card = document.createElement('div');
+      card.className = 'codex-card';
+      card.innerHTML = `
+        <h4 class="codex-title">${ch.title}</h4>
+        <div style="font-size:0.74rem; color:#ff9ebb; margin-bottom:6px">${ch.subtitle}</div>
+        <p class="codex-desc" style="font-family:var(--font-lore); font-size:0.98rem">${ch.body}</p>
+      `;
+      loreGrid.appendChild(card);
+    }
+    host.appendChild(loreGrid);
+
+    const h2 = document.createElement('div');
+    h2.className = 'section-heading';
+    h2.textContent = 'Atlas das Sete Regiões Amaldiçoadas';
+    host.appendChild(h2);
+
+    const atlasGrid = document.createElement('div');
+    atlasGrid.className = 'codex-grid';
+    for (const st of STAGES) {
+      const card = document.createElement('div');
+      card.className = 'codex-card';
+      card.innerHTML = `
+        <h4 class="codex-title">Fase ${st.roman} · ${st.name}</h4>
+        <div style="font-size:0.73rem; color:#ffd166; margin-bottom:5px">${st.subtitle}</div>
+        <p class="codex-desc" style="font-family:var(--font-lore); font-size:0.96rem">${st.lore}</p>
+      `;
+      atlasGrid.appendChild(card);
+    }
+    host.appendChild(atlasGrid);
   }
 
   private beginArenaRun(): void {
     this.transitionWithCurtain(() => {
       this.mountHudDom();
-      this.onStartRun(this.selectedHero, {
+      this.onStartRun(this.selectedHero, this.selectedStage, {
         onHudUpdate: (snap) => this.updateHud(snap),
         onLevelUpChoices: (choices, onPick) => this.showLevelUpModal(choices, onPick),
         onRelicChestOpen: (reward, onClose) => this.showRelicChestModal(reward, onClose),
@@ -321,8 +461,6 @@ export class UIManager {
     hud.className = 'hud-root';
     hud.dataset.testid = 'arena-hud';
 
-    const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-
     hud.innerHTML = `
       <div class="xp-bar-wrap">
         <div class="xp-bar-fill" style="width: 0%"></div>
@@ -337,7 +475,7 @@ export class UIManager {
 
         <div class="clock-panel">
           <div class="clock-time" data-clock-time>00:00</div>
-          <div class="clock-phase" data-clock-phase>I · Crepúsculo Cinzento</div>
+          <div class="clock-phase" data-clock-phase>Fase I</div>
         </div>
 
         <div class="stats-right">
@@ -360,14 +498,14 @@ export class UIManager {
         </div>
       </div>
 
-      <div class="touch-controls">
-        <div class="joystick-zone" data-joystick style="${isTouch ? '' : 'opacity:0.32'}">
-          <div class="joystick-knob" data-joystick-knob></div>
-        </div>
-        <button type="button" class="dash-btn" data-dash-btn title="Passo Espectral (Espaço)">
-          PASSO<br/>[ESPAÇO]
-        </button>
+      <div class="touch-drag-surface" data-touch-surface></div>
+      <div class="floating-joystick" data-floating-joy>
+        <div class="floating-joystick-knob" data-floating-knob></div>
       </div>
+
+      <button type="button" class="dash-btn" data-dash-btn title="Passo Espectral (Espaço)">
+        PASSO<br/>ESPECTRAL
+      </button>
 
       <div data-modal-host></div>
     `;
@@ -399,51 +537,65 @@ export class UIManager {
     hud.querySelector('[data-pause-btn]')?.addEventListener('click', () => this.onTogglePause());
     this.dashBtnEl?.addEventListener('click', () => this.onTriggerDash());
 
-    this.setupVirtualJoystick(
-      hud.querySelector('[data-joystick]') as HTMLElement,
-      hud.querySelector('[data-joystick-knob]') as HTMLElement
+    this.setupDynamicFloatingJoystick(
+      hud.querySelector('[data-touch-surface]') as HTMLElement,
+      hud.querySelector('[data-floating-joy]') as HTMLElement,
+      hud.querySelector('[data-floating-knob]') as HTMLElement
     );
 
     this.root.replaceChildren(hud);
   }
 
-  private setupVirtualJoystick(zone: HTMLElement, knob: HTMLElement): void {
+  private setupDynamicFloatingJoystick(
+    surface: HTMLElement,
+    ring: HTMLElement,
+    knob: HTMLElement
+  ): void {
     let activePointerId: number | null = null;
-    const radius = 38;
+    let originX = 0;
+    let originY = 0;
+    const maxRadius = 42;
 
-    const updateFromEvent = (ev: PointerEvent) => {
-      const rect = zone.getBoundingClientRect();
-      const cx = rect.left + rect.width / 2;
-      const cy = rect.top + rect.height / 2;
-      let dx = ev.clientX - cx;
-      let dy = ev.clientY - cy;
+    const updateMove = (ev: PointerEvent) => {
+      let dx = ev.clientX - originX;
+      let dy = ev.clientY - originY;
       const dist = Math.hypot(dx, dy);
-      if (dist > radius) {
-        dx = (dx / dist) * radius;
-        dy = (dy / dist) * radius;
+      if (dist > maxRadius) {
+        dx = (dx / dist) * maxRadius;
+        dy = (dy / dist) * maxRadius;
       }
       knob.style.transform = `translate(${dx}px, ${dy}px)`;
-      this.onSetVirtualJoystick(dx / radius, dy / radius);
+      this.onSetVirtualJoystick(dx / maxRadius, dy / maxRadius);
     };
 
-    const resetJoystick = () => {
+    const release = () => {
       activePointerId = null;
+      ring.classList.remove('active');
       knob.style.transform = 'translate(0px, 0px)';
       this.onSetVirtualJoystick(0, 0);
     };
 
-    zone.addEventListener('pointerdown', (ev) => {
+    surface.addEventListener('pointerdown', (ev) => {
+      if (activePointerId !== null) return;
       activePointerId = ev.pointerId;
-      zone.setPointerCapture(ev.pointerId);
-      updateFromEvent(ev);
+      originX = ev.clientX;
+      originY = ev.clientY;
+      ring.style.left = `${originX}px`;
+      ring.style.top = `${originY}px`;
+      ring.classList.add('active');
+      surface.setPointerCapture(ev.pointerId);
+      updateMove(ev);
     });
-    zone.addEventListener('pointermove', (ev) => {
-      if (ev.pointerId === activePointerId) updateFromEvent(ev);
+
+    surface.addEventListener('pointermove', (ev) => {
+      if (ev.pointerId === activePointerId) updateMove(ev);
     });
-    zone.addEventListener('pointerup', (ev) => {
-      if (ev.pointerId === activePointerId) resetJoystick();
+
+    surface.addEventListener('pointerup', (ev) => {
+      if (ev.pointerId === activePointerId) release();
     });
-    zone.addEventListener('pointercancel', resetJoystick);
+
+    surface.addEventListener('pointercancel', release);
   }
 
   private updateHud(snap: HudSnapshot): void {
@@ -453,7 +605,9 @@ export class UIManager {
     if (this.xpFillEl) this.xpFillEl.style.width = `${xpPct}%`;
     if (this.xpLevelEl) this.xpLevelEl.textContent = `NV ${snap.level}`;
     if (this.clockTimeEl) this.clockTimeEl.textContent = formatClock(snap.elapsedSeconds);
-    if (this.clockPhaseEl) this.clockPhaseEl.textContent = snap.phaseName;
+    if (this.clockPhaseEl) {
+      this.clockPhaseEl.textContent = `Fase ${snap.stageRoman} · ${snap.stageName}`;
+    }
     if (this.killsEl) this.killsEl.textContent = `${snap.kills}`;
     if (this.soulsEl) this.soulsEl.textContent = `${snap.souls}`;
 
@@ -461,7 +615,6 @@ export class UIManager {
       this.dashBtnEl.style.opacity = snap.dashReadyRatio >= 1 ? '1' : '0.45';
     }
 
-    // Render weapon & relic slots
     if (this.weaponRowEl) {
       const entries = Object.entries(snap.inventory.weapons) as Array<[WeaponId, number]>;
       let html = '';
@@ -472,12 +625,12 @@ export class UIManager {
           const def = WEAPONS[wId];
           html += `
             <div class="item-slot ${def.isEvolved ? 'evolved' : ''}" title="${def.name}">
-              <span style="color:${def.iconColor}">${WEAPON_GLYPHS[wId]}</span>
+              <span style="color:${def.iconColor}">${def.glyph}</span>
               <span class="slot-lvl">${def.isEvolved ? '★' : `Nv${lv}`}</span>
             </div>
           `;
         } else {
-          html += `<div class="item-slot" style="opacity:0.3"></div>`;
+          html += `<div class="item-slot" style="opacity:0.28"></div>`;
         }
       }
       this.weaponRowEl.innerHTML = html;
@@ -493,12 +646,12 @@ export class UIManager {
           const def = RELICS[rId];
           html += `
             <div class="item-slot" title="${def.name}">
-              <span style="color:${def.iconColor}">${RELIC_GLYPHS[rId]}</span>
+              <span style="color:${def.iconColor}">${def.glyph}</span>
               <span class="slot-lvl">Nv${lv}</span>
             </div>
           `;
         } else {
-          html += `<div class="item-slot" style="opacity:0.25"></div>`;
+          html += `<div class="item-slot" style="opacity:0.22"></div>`;
         }
       }
       this.relicRowEl.innerHTML = html;
@@ -550,7 +703,7 @@ export class UIManager {
     panel.className = 'modal-panel';
     panel.innerHTML = `
       <h2 class="modal-title">Ascensão de Éter</h2>
-      <p class="modal-subtitle">Escolha uma dádiva sagrada para enfrentar a noite (Teclas 1–${choices.length})</p>
+      <p class="modal-subtitle">Escolha uma dádiva sagrada para fortalecer sua vigília</p>
     `;
 
     const list = document.createElement('div');
@@ -568,9 +721,9 @@ export class UIManager {
       card.className = 'upgrade-card';
       card.dataset.testid = `upgrade-option-${idx}`;
       const glyph = c.weaponId
-        ? WEAPON_GLYPHS[c.weaponId]
+        ? WEAPONS[c.weaponId].glyph
         : c.relicId
-          ? RELIC_GLYPHS[c.relicId]
+          ? RELICS[c.relicId].glyph
           : '✦';
 
       card.innerHTML = `
@@ -603,18 +756,18 @@ export class UIManager {
     backdrop.dataset.testid = 'chest-modal';
 
     const glyph = reward.weaponId
-      ? WEAPON_GLYPHS[reward.weaponId]
+      ? WEAPONS[reward.weaponId].glyph
       : reward.relicId
-        ? RELIC_GLYPHS[reward.relicId]
+        ? RELICS[reward.relicId].glyph
         : '✦';
 
     backdrop.innerHTML = `
-      <div class="modal-panel" style="max-width:480px">
+      <div class="modal-panel" style="max-width:460px">
         <h2 class="modal-title">Relicário Dourado Aberto</h2>
         <p class="modal-subtitle">${reward.subtitle}</p>
         <div class="upgrade-card" style="cursor:default; margin-bottom:18px; text-align:center">
-          <div style="font-size:2.4rem; margin-bottom:6px">${glyph}</div>
-          <h3 class="upgrade-name" style="font-size:1.3rem">${reward.title}</h3>
+          <div style="font-size:2.3rem; margin-bottom:6px">${glyph}</div>
+          <h3 class="upgrade-name" style="font-size:1.25rem">${reward.title}</h3>
           <p class="upgrade-desc">${reward.description}</p>
         </div>
         <button type="button" class="btn-gothic" data-claim-chest>Reivindicar Poder</button>
@@ -639,12 +792,12 @@ export class UIManager {
     backdrop.className = 'modal-backdrop';
     backdrop.dataset.testid = 'pause-modal';
     backdrop.innerHTML = `
-      <div class="modal-panel" style="max-width:420px">
+      <div class="modal-panel" style="max-width:400px">
         <h2 class="modal-title">Vigília Suspensa</h2>
         <p class="modal-subtitle">A Névoa Rubra aguarda no escuro.</p>
         <div style="display:flex; flex-direction:column; gap:12px">
           <button type="button" class="btn-gothic" data-resume-btn>Retomar Vigília</button>
-          <button type="button" class="btn-gothic secondary" data-quit-btn>Retornar ao Conclave</button>
+          <button type="button" class="btn-gothic secondary" data-quit-btn>Menu & 7 Fases</button>
         </div>
       </div>
     `;
@@ -668,31 +821,46 @@ export class UIManager {
     if (!this.modalHostEl) return;
 
     const hero = HEROES[summary.heroId];
+    const currentStageIdx = STAGES.findIndex((s) => s.id === summary.stageId);
+    const currentStage = STAGES[currentStageIdx] ?? STAGES[0];
+    const nextStage = STAGES[currentStageIdx + 1];
+
     const backdrop = document.createElement('div');
     backdrop.className = 'modal-backdrop';
     backdrop.dataset.testid = 'summary-modal';
 
     backdrop.innerHTML = `
       <div class="modal-panel" style="max-width:520px">
-        <h2 class="modal-title" style="color:${summary.victory ? '#ffe494' : '#ff4d6d'}">
-          ${summary.victory ? 'ALVORADA RECONQUISTADA' : 'CONSUMIDO PELO ECLIPSE'}
+        <h2 class="modal-title" style="color:${summary.victory ? '#ffe599' : '#ff4d6d'}">
+          ${summary.victory ? `FASE ${currentStage.roman} PURIFICADA!` : 'CONSUMIDO PELO ECLIPSE'}
         </h2>
-        <p class="modal-subtitle">${hero.name} · ${hero.epithet}</p>
+        <p class="modal-subtitle">${hero.name} · ${currentStage.name}</p>
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:20px; text-align:left">
-          <div class="stat-pill">Tempo Sobrevivido: <strong>${formatClock(summary.elapsedSeconds)}</strong></div>
-          <div class="stat-pill">Nível de Éter: <strong>${summary.level}</strong></div>
-          <div class="stat-pill">Criaturas Abatidas: <strong>${summary.kills}</strong></div>
-          <div class="stat-pill">Almas Colhidas: <strong>${summary.souls}</strong></div>
+          <div class="stat-pill">Tempo: <strong>${formatClock(summary.elapsedSeconds)}</strong></div>
+          <div class="stat-pill">Nível: <strong>${summary.level}</strong></div>
+          <div class="stat-pill">Abates: <strong>${summary.kills}</strong></div>
+          <div class="stat-pill">Almas: <strong>${summary.souls}</strong></div>
         </div>
 
-        <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap">
-          <button type="button" class="btn-gothic" data-retry-btn>Nova Vigília</button>
-          <button type="button" class="btn-gothic secondary" data-menu-btn>Escolher Juramentado</button>
+        <div style="display:flex; gap:10px; justify-content:center; flex-wrap:wrap">
+          ${
+            summary.victory && nextStage
+              ? `<button type="button" class="btn-gothic" data-next-stage-btn>Avançar: Fase ${nextStage.roman} (${nextStage.name})</button>`
+              : ''
+          }
+          <button type="button" class="btn-gothic ${summary.victory && nextStage ? 'secondary' : ''}" data-retry-btn>Repetir Fase</button>
+          <button type="button" class="btn-gothic secondary" data-menu-btn>Mapa das 7 Fases</button>
         </div>
       </div>
     `;
 
+    backdrop.querySelector('[data-next-stage-btn]')?.addEventListener('click', () => {
+      if (nextStage) {
+        this.selectedStage = nextStage.id;
+        this.beginArenaRun();
+      }
+    });
     backdrop.querySelector('[data-retry-btn]')?.addEventListener('click', () => this.beginArenaRun());
     backdrop.querySelector('[data-menu-btn]')?.addEventListener('click', () => {
       this.transitionWithCurtain(() => {

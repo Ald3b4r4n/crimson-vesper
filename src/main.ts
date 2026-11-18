@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { HeroId } from './data/loreData';
+import { HeroId, StageId } from './data/loreData';
 import { ArenaCallbacks, ArenaScene } from './scenes/ArenaScene';
 import './styles.css';
 import { UIManager } from './ui/UIManager';
@@ -12,7 +12,7 @@ const arenaScene = new ArenaScene();
 const game = new Phaser.Game({
   type: Phaser.AUTO,
   parent: phaserContainer,
-  backgroundColor: '#0a060c',
+  backgroundColor: '#08050b',
   scale: {
     mode: Phaser.Scale.RESIZE,
     autoCenter: Phaser.Scale.CENTER_BOTH,
@@ -33,8 +33,8 @@ function getActiveArena(): ArenaScene | null {
 }
 
 new UIManager(uiLayer, {
-  onStartRun: (heroId: HeroId, callbacks: ArenaCallbacks) => {
-    arenaScene.configureRun(heroId, callbacks);
+  onStartRun: (heroId: HeroId, stageId: StageId, callbacks: ArenaCallbacks) => {
+    arenaScene.configureRun(heroId, stageId, callbacks);
     if (game.scene.isActive('ArenaScene') || game.scene.isPaused('ArenaScene')) {
       game.scene.stop('ArenaScene');
     }
