@@ -26,7 +26,9 @@ import {
   applyUpgradeChoice,
   buildUpgradeChoices,
   computeEffectiveStats,
+  computeIntraMatchEscalation,
   createInitialInventory,
+  IntraMatchEscalation,
   InventoryState,
   resolveRelicChest,
   UpgradeChoice,
@@ -71,12 +73,25 @@ export interface RunSummary {
   inventory: InventoryState;
 }
 
+export type BossRole =
+  | 'none'
+  | 'sub_boss'
+  | 'act_10_boss'
+  | 'major_20_boss'
+  | 'major_30_boss'
+  | 'final_40_boss';
+
 export interface ArenaCallbacks {
   onHudUpdate: (snapshot: HudSnapshot) => void;
   onLevelUpChoices: (choices: UpgradeChoice[], onPick: (choice: UpgradeChoice) => void) => void;
   onRelicChestOpen: (reward: UpgradeChoice, onClose: () => void) => void;
   onBannerAnnouncement: (title: string, subtitle: string) => void;
   onPauseChanged: (paused: boolean) => void;
+  onStage30MinBossCleared: (
+    summary: RunSummary,
+    onContinueTo40: () => void,
+    onFinishStageNow: () => void
+  ) => void;
   onRunEnded: (summary: RunSummary) => void;
 }
 
@@ -84,6 +99,7 @@ interface EnemyRuntime {
   id: number;
   kind: EnemyKind;
   def: EnemyDefinition;
+  displayName: string;
   sprite: Phaser.GameObjects.Sprite;
   shadow: Phaser.GameObjects.Image;
   x: number;
@@ -97,7 +113,7 @@ interface EnemyRuntime {
   knockVy: number;
   active: boolean;
   dying: boolean;
-  isFinalStageBoss: boolean;
+  bossRole: BossRole;
   isElite: boolean;
   burnTimer: number;
   burnTickTimer: number;
@@ -253,7 +269,9 @@ export class ArenaScene extends Phaser.Scene {
   private flames: FlameParticleRuntime[] = [];
   private ambientEmberTimer = 0;
   private sceneryFireTimer = 0;
-  private hordeSurgeTimer = 45;
+  private hordeSurgeTimer = 35;
+  private subBossTimer = 75;
+  private subBossWaveIndex = 0;
 
   // Hero
   private heroSprite!: Phaser.GameObjects.Sprite;
@@ -405,7 +423,9 @@ export class ArenaScene extends Phaser.Scene {
     this.orbitalHitCooldowns.clear();
     this.spawnedMilestones.clear();
     this.sceneryFireTimer = 0;
-    this.hordeSurgeTimer = 45;
+    this.hordeSurgeTimer = this.difficultyDef.surgeIntervalSec;
+    this.subBossTimer = Math.round(this.difficultyDef.subBossIntervalSec * 0.85);
+    this.subBossWaveIndex = 0;
 
     this.inventory = createInitialInventory(this.heroId);
     this.stats = computeEffectiveStats(this.inventory);
@@ -742,20 +762,6 @@ export class ArenaScene extends Phaser.Scene {
     if (this.hudSyncTimer >= 0.1) {
       this.hudSyncTimer = 0;
       this.pushHudUpdate();
-    }
-
-    if (
-      this.elapsedSeconds >= this.stageDef.durationSeconds &&
-      !this.spawnedMilestones.has('final_boss')
-    ) {
-      this.spawnedMilestones.add('final_boss');
-      const finalDef = ENEMIES[this.stageDef.finalBoss];
-      this.spawnBoss(
-        this.stageDef.finalBoss,
-        finalDef.name,
-        'Derrote o Guardião da Região para conquistar esta Fase!',
-        true
-      );
     }
   }
 
@@ -1285,146 +1291,142 @@ export class ArenaScene extends Phaser.Scene {
     }
   }
 
-  private getActEscalation(): {
-    act: 1 | 2 | 3 | 4;
-    actName: string;
-    hpMult: number;
-    dmgMult: number;
-    spdMult: number;
-    xpMult: number;
-    maxHorde: number;
-  } {
-    const mins = this.elapsedSeconds / 60;
-    const d = this.difficultyDef;
-    const smoothTime = 1 + mins * 0.14;
-    if (mins < 10) {
-      return {
-        act: 1,
-        actName: 'Ato I · Primeiro Véu',
-        hpMult: (0.95 + mins * 0.08) * d.hpMult,
-        dmgMult: 1.0 * d.dmgMult,
-        spdMult: 1.0 * d.spdMult,
-        xpMult: 1.15 * d.xpMult,
-        maxHorde: Math.min(620, Math.round((75 + mins * 12) * d.hordeMult)),
-      };
-    }
-    if (mins < 20) {
-      return {
-        act: 2,
-        actName: 'Ato II · Sangue Crescente',
-        hpMult: 1.85 * (1 + (mins - 10) * 0.07) * d.hpMult,
-        dmgMult: 1.32 * d.dmgMult,
-        spdMult: 1.12 * d.spdMult,
-        xpMult: 1.65 * d.xpMult,
-        maxHorde: Math.min(620, Math.round((195 + (mins - 10) * 11) * d.hordeMult)),
-      };
-    }
-    if (mins < 30) {
-      return {
-        act: 3,
-        actName: 'Ato III · Noite Profunda',
-        hpMult: 3.3 * (1 + (mins - 20) * 0.06) * d.hpMult,
-        dmgMult: 1.68 * d.dmgMult,
-        spdMult: 1.24 * d.spdMult,
-        xpMult: 2.35 * d.xpMult,
-        maxHorde: Math.min(620, Math.round((305 + (mins - 20) * 11) * d.hordeMult)),
-      };
-    }
-    return {
-      act: 4,
-      actName: 'Ato IV · Apocalipse Carmesim',
-      hpMult: (5.2 + Math.max(0, mins - 30) * 0.25) * d.hpMult,
-      dmgMult: 2.15 * d.dmgMult,
-      spdMult: Math.min(1.85, 1.36 * d.spdMult * Math.min(1.2, smoothTime * 0.45 + 0.6)),
-      xpMult: 3.25 * d.xpMult,
-      maxHorde: Math.min(620, Math.round((415 + Math.min(12, mins - 30) * 12) * d.hordeMult)),
-    };
+  private getActEscalation(): IntraMatchEscalation {
+    return computeIntraMatchEscalation(this.elapsedSeconds, this.difficultyId, this.inventory);
   }
 
   private updateWaveDirector(dt: number): void {
     const t = this.elapsedSeconds;
     const elapsedMins = t / 60;
     const esc = this.getActEscalation();
-    const maxActiveEnemies = Math.min(
-      620,
-      Math.max(esc.maxHorde, Math.round((55 + elapsedMins * 11.2) * this.difficultyDef.hordeMult))
-    );
+    const maxActiveEnemies = esc.maxHorde;
 
-    // 10-Minute Major Act Escalation Announcements + Act Bosses (10:00, 20:00, 30:00)!
-    const actAnnouncements: Array<{ sec: number; key: string; title: string; sub: string }> = [
-      {
-        sec: 600,
-        key: 'act_2',
-        title: 'ATO II · SANGUE CRESCENTE (10:00)',
-        sub: 'Hordas maiores avançam sem trégua! Um Campeão traz novo Relicário!',
-      },
-      {
-        sec: 1200,
-        key: 'act_3',
-        title: 'ATO III · NOITE PROFUNDA (20:00)',
-        sub: 'Legiões anciãs cercam você! Busque suas Evoluções Ancestrais e Ultimate!',
-      },
-      {
-        sec: 1800,
-        key: 'act_4',
-        title: 'ATO IV · APOCALIPSE CARMESIM (30:00)',
-        sub: 'Maré abissal total antes do Guardião Supremo!',
-      },
-    ];
-
-    for (const m of actAnnouncements) {
-      if (t >= m.sec && !this.spawnedMilestones.has(m.key)) {
-        this.spawnedMilestones.add(m.key);
-        this.spawnBoss(this.stageDef.midBoss, m.title, m.sub, false);
-        const surgeKind = this.stageDef.enemyPool[Math.min(this.stageDef.enemyPool.length - 1, esc.act)];
-        this.spawnCircleWave(surgeKind, Math.round((20 + esc.act * 7) * this.difficultyDef.hordeMult));
-      }
+    // 1. Unified 7-Stage Boss Milestones:
+    //    - 10:00 (600s): Act II Herald Sub-Boss
+    //    - 20:00 (1200s): 1st Major Stage Boss (boss20Min)
+    //    - 30:00 (1800s): 2nd Major Stage Boss (boss30Min) -> Victory / Continue to 40:00 choice!
+    //    - 40:00 (2400s): Final Supreme Overlord (boss40Min) -> Final stage completion!
+    if (t >= 600 && !this.spawnedMilestones.has('act_10_boss')) {
+      this.spawnedMilestones.add('act_10_boss');
+      const midDef = ENEMIES[this.stageDef.midBoss];
+      this.spawnBoss(
+        this.stageDef.midBoss,
+        `ATO II (10:00) · ${midDef.name}`,
+        'A horda acelera e fica mais brutal! Derrote o Comandante!',
+        'act_10_boss'
+      );
+      const surgeKind = this.stageDef.enemyPool[Math.min(this.stageDef.enemyPool.length - 1, 2)];
+      this.spawnCircleWave(surgeKind, Math.round(this.difficultyDef.bossEscortCount * 0.85));
     }
 
-    // Periodic Horde Encirclement Surges ("Horda Crescente") every 45s scaling with time & difficulty!
-    this.hordeSurgeTimer -= dt;
-    if (this.hordeSurgeTimer <= 0 && this.enemies.length < maxActiveEnemies) {
-      this.hordeSurgeTimer = Math.max(24, 46 - elapsedMins * 0.55);
-      const pool = this.stageDef.enemyPool;
-      const pickKind = pool[Math.floor(Math.random() * Math.min(pool.length, 2 + Math.floor(elapsedMins / 5)))];
-      const waveSize = Math.min(48, Math.round((14 + elapsedMins * 1.4) * this.difficultyDef.hordeMult));
-      this.spawnCircleWave(pickKind, waveSize);
-    }
-
-    // Regular Champion Bosses (~every 3.5 mins) so player gets 11 Golden Chests for Evolutions & Ultimates!
-    const championTimes = [180, 390, 810, 1020, 1410, 1620, 2040, 2250];
-    for (const cSec of championTimes) {
-      const cKey = `champ_${cSec}`;
-      if (t >= cSec && !this.spawnedMilestones.has(cKey)) {
-        this.spawnedMilestones.add(cKey);
-        const midDef = ENEMIES[this.stageDef.midBoss];
+    if (t >= 1200 && !this.spawnedMilestones.has('major_20_boss')) {
+      this.spawnedMilestones.add('major_20_boss');
+      const b20 = ENEMIES[this.stageDef.boss20Min];
+      this.spawnBoss(
+        this.stageDef.boss20Min,
+        `1º CHEFÃO (20:00) · ${b20.name}`,
+        'Primeiro Guardião Maior! Derrote-o para conquistar 2 Relicários Dourados!',
+        'major_20_boss'
+      );
+      const escortKind = this.stageDef.enemyPool[Math.min(this.stageDef.enemyPool.length - 1, 3)];
+      this.spawnCircleWave(escortKind, this.difficultyDef.bossEscortCount);
+      if (this.difficultyId === 'epic' || this.difficultyId === 'holi_shit') {
+        const guardKind = this.stageDef.subBossPool[0] ?? this.stageDef.midBoss;
         this.spawnBoss(
-          this.stageDef.midBoss,
-          `Campeão: ${midDef.name}`,
-          'Derrote-o para obter um Relicário Dourado!',
-          false
+          guardKind,
+          `Guarda-Costas · ${ENEMIES[guardKind].name}`,
+          'Escolta implacável do 1º Chefão!',
+          'sub_boss'
         );
       }
     }
 
+    if (t >= 1800 && !this.spawnedMilestones.has('major_30_boss')) {
+      this.spawnedMilestones.add('major_30_boss');
+      const b30 = ENEMIES[this.stageDef.boss30Min];
+      this.spawnBoss(
+        this.stageDef.boss30Min,
+        `2º CHEFÃO (30:00) · ${b30.name}`,
+        'Derrote o 2º Chefão para vencer a Fase ou seguir até os 40 minutos!',
+        'major_30_boss'
+      );
+      const escortKind = this.stageDef.enemyPool[Math.min(this.stageDef.enemyPool.length - 1, 4)];
+      this.spawnCircleWave(escortKind, Math.round(this.difficultyDef.bossEscortCount * 1.2));
+    }
+
+    if (t >= this.stageDef.durationSeconds && !this.spawnedMilestones.has('final_40_boss')) {
+      this.spawnedMilestones.add('final_40_boss');
+      const b40 = ENEMIES[this.stageDef.boss40Min];
+      this.spawnBoss(
+        this.stageDef.boss40Min,
+        `CHEFÃO SUPREMO (40:00) · ${b40.name}`,
+        'Último Guardião do Eclipse! Derrote-o para finalizar de vez a Fase!',
+        'final_40_boss'
+      );
+      const apexEscort = this.stageDef.enemyPool[this.stageDef.enemyPool.length - 1];
+      this.spawnCircleWave(apexEscort, Math.round(this.difficultyDef.bossEscortCount * 1.4));
+    }
+
+    // 2. Recurring Regional Sub-Bosses scaled dynamically by difficulty + match progression!
+    this.subBossTimer -= dt;
+    if (this.subBossTimer <= 0) {
+      this.subBossWaveIndex += 1;
+      const freqAccel = Math.max(0.58, 1 - elapsedMins * 0.011);
+      this.subBossTimer = Math.max(26, this.difficultyDef.subBossIntervalSec * freqAccel);
+
+      let subCount = this.difficultyDef.subBossBaseCount;
+      if (this.difficultyId === 'normal' && elapsedMins >= 16) subCount = 2;
+      else if (this.difficultyId === 'hard' && elapsedMins >= 12) subCount = 2;
+      else if (this.difficultyId === 'epic' && elapsedMins >= 20) subCount = 3;
+      else if (this.difficultyId === 'holi_shit' && elapsedMins >= 10) subCount = 3;
+
+      for (let s = 0; s < subCount; s++) {
+        const useMidBoss = (this.subBossWaveIndex + s) % 3 === 0;
+        const pool = this.stageDef.subBossPool;
+        const kind = useMidBoss
+          ? this.stageDef.midBoss
+          : pool[(this.subBossWaveIndex + s) % pool.length];
+        const def = ENEMIES[kind];
+        this.spawnBoss(
+          kind,
+          `Sub-Chefe: ${def.name}`,
+          'Campeão Regional à espreita — derruba Relicário Dourado!',
+          'sub_boss'
+        );
+      }
+      const escort = this.stageDef.enemyPool[Math.min(this.stageDef.enemyPool.length - 1, Math.floor(elapsedMins / 8))];
+      this.spawnCircleWave(escort, Math.round(10 * this.difficultyDef.hordeMult));
+    }
+
+    // 3. Periodic Horde Encirclement Surges scaled steeply with time & difficulty!
+    this.hordeSurgeTimer -= dt;
+    if (this.hordeSurgeTimer <= 0 && this.enemies.length < maxActiveEnemies) {
+      this.hordeSurgeTimer = Math.max(12, this.difficultyDef.surgeIntervalSec - elapsedMins * 0.45);
+      const pool = this.stageDef.enemyPool;
+      const unlockedMax = Math.min(pool.length, 3 + Math.floor(elapsedMins / 5));
+      const pickKind = pool[Math.floor(Math.random() * unlockedMax)];
+      const waveSize = Math.min(
+        56,
+        Math.round((15 + elapsedMins * 1.55) * this.difficultyDef.hordeMult)
+      );
+      this.spawnCircleWave(pickKind, waveSize);
+    }
+
     if (this.enemies.length >= maxActiveEnemies) return;
 
-    const spawnsPerSecond =
-      (2.4 + elapsedMins * 0.45) *
-      (0.92 + this.stageDef.difficultyMult * 0.12) *
-      this.difficultyDef.spawnRateMult;
+    const stageMult = 0.92 + (this.stageDef.difficultyMult - 1) * 0.14;
+    const spawnsPerSecond = esc.spawnsPerSecond * stageMult;
     this.spawnAccumulator += spawnsPerSecond * dt;
 
     const pool = this.stageDef.enemyPool;
     const unlockedCount = Math.min(pool.length, Math.max(3, 3 + Math.floor(elapsedMins / 4)));
-    const packSize = 1 + Math.floor(elapsedMins / 10);
 
     while (this.spawnAccumulator >= 1 && this.enemies.length < maxActiveEnemies) {
       this.spawnAccumulator -= 1;
-      const biasPow = elapsedMins < 8 ? 1.55 : elapsedMins < 20 ? 1.15 : 0.88;
+      const biasPow = elapsedMins < 8 ? 1.5 : elapsedMins < 20 ? 1.12 : 0.84;
       const idx = Math.min(unlockedCount - 1, Math.floor(Math.pow(Math.random(), biasPow) * unlockedCount));
       const kind = pool[idx];
-      for (let p = 0; p < packSize && this.enemies.length < maxActiveEnemies; p++) {
+      for (let p = 0; p < esc.packSize && this.enemies.length < maxActiveEnemies; p++) {
         this.spawnEnemyAroundHero(kind);
       }
     }
@@ -1439,7 +1441,7 @@ export class ArenaScene extends Phaser.Scene {
         kind,
         this.heroX + Math.cos(angle) * dist,
         this.heroY + Math.sin(angle) * dist,
-        false
+        'none'
       );
     }
   }
@@ -1448,17 +1450,18 @@ export class ArenaScene extends Phaser.Scene {
     kind: EnemyKind,
     title: string,
     subtitle: string,
-    isFinalStageBoss: boolean
+    bossRole: BossRole
   ): void {
     gothicAudio.playBossHorn();
-    this.cameras.main.shake(360, 0.006);
+    this.cameras.main.shake(380, bossRole === 'major_20_boss' || bossRole === 'major_30_boss' || bossRole === 'final_40_boss' ? 0.0085 : 0.006);
     this.callbacks?.onBannerAnnouncement(title, subtitle);
     const angle = Math.random() * Math.PI * 2;
     this.spawnEnemyAt(
       kind,
-      this.heroX + Math.cos(angle) * 420,
-      this.heroY + Math.sin(angle) * 420,
-      isFinalStageBoss
+      this.heroX + Math.cos(angle) * 440,
+      this.heroY + Math.sin(angle) * 440,
+      bossRole,
+      title
     );
   }
 
@@ -1471,7 +1474,7 @@ export class ArenaScene extends Phaser.Scene {
       kind,
       this.heroX + Math.cos(angle) * halfW,
       this.heroY + Math.sin(angle) * halfH,
-      false
+      'none'
     );
   }
 
@@ -1479,48 +1482,62 @@ export class ArenaScene extends Phaser.Scene {
     kind: EnemyKind,
     x: number,
     y: number,
-    isFinalStageBoss: boolean
+    bossRole: BossRole,
+    customTitle?: string
   ): void {
     const def = ENEMIES[kind];
     const esc = this.getActEscalation();
-    const withinActRamp = 1 + ((this.elapsedSeconds % 600) / 600) * 0.32;
+    const isBossUnit = bossRole !== 'none' || Boolean(def.isBoss);
     const isElite =
-      !def.isBoss && this.elapsedSeconds > 45 && Math.random() < this.difficultyDef.eliteChance;
-    const bossActMult = isFinalStageBoss
-      ? 2.8 * this.difficultyDef.hpMult
-      : (0.85 + (esc.act - 1) * 0.65) * this.difficultyDef.hpMult;
+      !isBossUnit && this.elapsedSeconds > 35 && Math.random() < this.difficultyDef.eliteChance;
+
+    const baseRoleHpMult: Record<BossRole, number> = {
+      none: 1,
+      sub_boss: def.isBoss ? 1.15 : 8.5,
+      act_10_boss: 2.1,
+      major_20_boss: 4.4,
+      major_30_boss: 6.2,
+      final_40_boss: 8.8,
+    };
+
     const eliteMult = isElite ? 3.2 : 1.0;
     const scaledHp = Math.round(
       def.hp *
         this.stageDef.difficultyMult *
-        (def.isBoss ? bossActMult : esc.hpMult * withinActRamp * eliteMult)
+        (isBossUnit
+          ? baseRoleHpMult[bossRole] * Math.max(1.2, esc.hpMult * 0.42)
+          : esc.hpMult * eliteMult)
     );
-    const visualScale = isElite ? def.scale * 1.28 : def.scale;
+    const visualScale = isBossUnit
+      ? Math.max(def.scale, def.isBoss ? def.scale : def.scale * 1.45)
+      : isElite
+        ? def.scale * 1.28
+        : def.scale;
 
     const shadow = this.add
-      .image(x, y + (def.isBoss ? 52 : 30) * visualScale, 'vfx_shadow')
+      .image(x, y + (isBossUnit ? 50 : 30) * visualScale, 'vfx_shadow')
       .setDepth(3)
       .setScale(visualScale * 0.95, visualScale * 0.72)
       .setAlpha(0);
 
     const sprite = this.add
       .sprite(x, y, `enemy_${kind}`, Phaser.Math.Between(0, 7))
-      .setDepth(ySortDepth(y + 28, def.isBoss ? 2 : isElite ? 1 : 0))
+      .setDepth(ySortDepth(y + 28, isBossUnit ? 2 : isElite ? 1 : 0))
       .setScale(visualScale * 0.25, visualScale * 0.1)
       .setAlpha(0)
-      .setTint(isElite ? 0xff9f1c : 0x2a1428);
+      .setTint(isBossUnit ? 0xff4d6d : isElite ? 0xff9f1c : 0x2a1428);
     sprite.play(`enemy_${kind}_move`);
 
     const ripple = this.add
       .image(x, y + 14, 'vfx_particle')
-      .setTint(def.isBoss ? 0xff2a55 : isElite ? 0xffd166 : this.stageDef.palette.emberTint)
+      .setTint(isBossUnit ? 0xff2a55 : isElite ? 0xffd166 : this.stageDef.palette.emberTint)
       .setScale(0.5)
       .setAlpha(0.62)
       .setDepth(3);
     this.tweens.add({
       targets: ripple,
-      scaleX: def.isBoss ? 6 : isElite ? 4 : 2.8,
-      scaleY: def.isBoss ? 3 : isElite ? 2 : 1.4,
+      scaleX: isBossUnit ? 6 : isElite ? 4 : 2.8,
+      scaleY: isBossUnit ? 3 : isElite ? 2 : 1.4,
       alpha: 0,
       duration: 380,
       onComplete: () => ripple.destroy(),
@@ -1530,11 +1547,12 @@ export class ArenaScene extends Phaser.Scene {
       id: this.nextEnemyId++,
       kind,
       def,
+      displayName: customTitle ?? def.name,
       sprite,
       shadow,
       x,
       y,
-      radius: def.radius * (isElite ? 1.22 : 1),
+      radius: def.radius * (isBossUnit && !def.isBoss ? 1.45 : isElite ? 1.22 : 1),
       hp: scaledHp,
       maxHp: scaledHp,
       vx: 0,
@@ -1543,7 +1561,7 @@ export class ArenaScene extends Phaser.Scene {
       knockVy: 0,
       active: true,
       dying: false,
-      isFinalStageBoss,
+      bossRole,
       isElite,
       burnTimer: 0,
       burnTickTimer: 0,
@@ -1552,7 +1570,7 @@ export class ArenaScene extends Phaser.Scene {
       squashTimer: 0,
       animSeed: Math.random() * Math.PI * 2,
       auraContactTimer: 0,
-      bossChargeTimer: kind === 'werewolf' ? 3.2 : 4.0,
+      bossChargeTimer: (kind === 'werewolf' ? 3.2 : 3.8) * this.difficultyDef.bossAbilityCdMult,
       bossCharging: false,
       bossChargeDirX: 0,
       bossChargeDirY: 0,
@@ -2493,7 +2511,8 @@ export class ArenaScene extends Phaser.Scene {
       const dxHero = this.heroX - e.x;
       const dyHero = this.heroY - e.y;
       const distHero = Math.hypot(dxHero, dyHero) || 1;
-      if (!e.def.isBoss && distHero > maxEnemyDist) {
+      const isBossUnit = e.bossRole !== 'none' || Boolean(e.def.isBoss);
+      if (!isBossUnit && distHero > maxEnemyDist) {
         const angle = Math.random() * Math.PI * 2;
         e.x = this.heroX + Math.cos(angle) * (cam.width / 2 + 68);
         e.y = this.heroY + Math.sin(angle) * (cam.height / 2 + 68);
@@ -2504,7 +2523,7 @@ export class ArenaScene extends Phaser.Scene {
         e.spawnProgress = Math.min(1, e.spawnProgress + dt * 2.9);
       }
 
-      let moveSpeed = e.def.speed * (e.def.isBoss ? 1 : esc.spdMult);
+      let moveSpeed = e.def.speed * (isBossUnit ? Math.max(1.0, esc.spdMult * 0.85) : esc.spdMult);
       let dirX = dxHero / distHero;
       let dirY = dyHero / distHero;
 
@@ -2538,10 +2557,10 @@ export class ArenaScene extends Phaser.Scene {
         }
       } else if (e.kind === 'necromancer') {
         e.bossChargeTimer -= dt;
-        if (e.bossChargeTimer <= 0 && distHero < 480 && this.enemies.length < 480) {
-          e.bossChargeTimer = 7.2;
+        if (e.bossChargeTimer <= 0 && distHero < 480 && this.enemies.length < 580) {
+          e.bossChargeTimer = 7.2 * this.difficultyDef.bossAbilityCdMult;
           this.spawnRingBurst(e.x, e.y, 0x52ff9a, 8);
-          this.spawnEnemyAt(Math.random() < 0.5 ? 'skeleton' : 'bone_crawler', e.x + 28, e.y + 12, false);
+          this.spawnEnemyAt(Math.random() < 0.5 ? 'skeleton' : 'bone_crawler', e.x + 28, e.y + 12, 'none');
         }
       } else if (e.kind === 'ash_wraith' || e.kind === 'inquisitor') {
         if (Math.random() < 0.16 && distHero < 560) {
@@ -2554,7 +2573,9 @@ export class ArenaScene extends Phaser.Scene {
             0.55
           );
         }
-      } else if (e.def.isBoss) {
+      }
+
+      if (isBossUnit) {
         e.bossChargeTimer -= dt;
         if (e.bossChargeTimer <= 0 && !e.bossCharging) {
           e.bossCharging = true;
@@ -2562,13 +2583,44 @@ export class ArenaScene extends Phaser.Scene {
           e.bossChargeDirX = dirX;
           e.bossChargeDirY = dirY;
           this.spawnRingBurst(e.x, e.y, 0xff2a55, 10);
+
+          // Difficulty & Major Boss variations: emit fire ring + summon skirmishers on Hard+ / Major Bosses!
+          if (
+            this.difficultyId !== 'normal' ||
+            e.bossRole === 'major_20_boss' ||
+            e.bossRole === 'major_30_boss' ||
+            e.bossRole === 'final_40_boss'
+          ) {
+            for (let f = 0; f < 6; f++) {
+              const fa = (f / 6) * Math.PI * 2;
+              this.spawnPhysicsFlame(
+                e.x + Math.cos(fa) * 26,
+                e.y + Math.sin(fa) * 20,
+                Math.cos(fa) * 95,
+                Math.sin(fa) * 75 - 20,
+                'hellfire',
+                0.85
+              );
+            }
+          }
+          if (
+            (e.bossRole === 'major_20_boss' ||
+              e.bossRole === 'major_30_boss' ||
+              e.bossRole === 'final_40_boss' ||
+              this.difficultyId === 'holi_shit') &&
+            this.enemies.length < 560
+          ) {
+            const minionKind = this.stageDef.enemyPool[0];
+            this.spawnEnemyAt(minionKind, e.x + 36, e.y - 24, 'none');
+            this.spawnEnemyAt(minionKind, e.x - 36, e.y + 24, 'none');
+          }
         } else if (e.bossCharging) {
           dirX = e.bossChargeDirX;
           dirY = e.bossChargeDirY;
           moveSpeed *= 2.4;
           if (e.bossChargeTimer <= 0) {
             e.bossCharging = false;
-            e.bossChargeTimer = 3.8;
+            e.bossChargeTimer = 3.8 * this.difficultyDef.bossAbilityCdMult;
           }
         }
       }
@@ -2614,8 +2666,9 @@ export class ArenaScene extends Phaser.Scene {
       e.y += e.vy * dt;
 
       const emergeEase = 1 - Math.pow(1 - e.spawnProgress, 3);
-      const visualBase = e.def.isBoss
-        ? e.def.scale * 0.84
+      const isColossal = e.bossRole !== 'none' || Boolean(e.def.isBoss);
+      const visualBase = isColossal
+        ? (e.def.isBoss ? e.def.scale : e.def.scale * 1.45) * 0.84
         : (e.isElite ? e.def.scale * 1.24 : e.def.scale) * 0.78;
       let sx = visualBase * (0.45 + 0.55 * emergeEase);
       let sy = visualBase * (0.15 + 0.85 * emergeEase);
@@ -2679,7 +2732,8 @@ export class ArenaScene extends Phaser.Scene {
     enemy.hitFlashTimer = 0.065;
     enemy.squashTimer = 0.14;
 
-    const resist = enemy.def.knockbackResist;
+    const esc = this.getActEscalation();
+    const resist = Math.min(0.96, enemy.def.knockbackResist + esc.knockbackBonus);
     enemy.knockVx += knockX * (1 - resist);
     enemy.knockVy += knockY * (1 - resist);
 
@@ -2698,19 +2752,73 @@ export class ArenaScene extends Phaser.Scene {
   private killEnemyElegantly(enemy: EnemyRuntime): void {
     enemy.dying = true;
     this.kills += 1;
-    const soulGain = enemy.def.isBoss ? 60 : enemy.isElite ? 6 : 1;
+    const isBossUnit = enemy.bossRole !== 'none' || Boolean(enemy.def.isBoss);
+    const soulGain =
+      enemy.bossRole === 'final_40_boss'
+        ? 300
+        : enemy.bossRole === 'major_30_boss'
+          ? 180
+          : enemy.bossRole === 'major_20_boss'
+            ? 120
+            : isBossUnit
+              ? 60
+              : enemy.isElite
+                ? 6
+                : 1;
     this.inventory.souls += Math.round(soulGain * this.difficultyDef.soulMult);
 
     const esc = this.getActEscalation();
-    const eliteXpMult = enemy.isElite ? 3.0 : 1.0;
+    const eliteXpMult = enemy.isElite ? 3.0 : isBossUnit ? 2.2 : 1.0;
     const xpReward = Math.max(1, Math.round(enemy.def.xpValue * esc.xpMult * eliteXpMult));
-    this.spawnXpGem(enemy.x, enemy.y, xpReward, enemy.isElite ? 'ruby' : enemy.def.gemTier);
-    if (enemy.def.isBoss) {
-      this.cameras.main.shake(420, 0.009);
-      this.spawnRingBurst(enemy.x, enemy.y, 0xffd166, 28);
+    this.spawnXpGem(enemy.x, enemy.y, xpReward, isBossUnit || enemy.isElite ? 'ruby' : enemy.def.gemTier);
 
-      if (enemy.isFinalStageBoss) {
+    if (isBossUnit) {
+      this.cameras.main.shake(460, 0.01);
+      this.spawnRingBurst(enemy.x, enemy.y, 0xffd166, 30);
+
+      if (enemy.bossRole === 'final_40_boss') {
+        this.spawnFloatingNotice(enemy.x, enemy.y - 36, 'VICTORIA SUPREMA!', '#ffe79e');
         this.time.delayedCall(650, () => this.finishRun(true));
+      } else if (enemy.bossRole === 'major_30_boss') {
+        this.spawnRelicChest(enemy.x, enemy.y);
+        const partialSummary: RunSummary = {
+          victory: true,
+          heroId: this.heroId,
+          stageId: this.stageDef.id,
+          difficultyId: this.difficultyId,
+          elapsedSeconds: this.elapsedSeconds,
+          level: this.inventory.level,
+          kills: this.kills,
+          souls: this.inventory.souls,
+          inventory: this.inventory,
+        };
+        this.time.delayedCall(550, () => {
+          if (this.runEnded) return;
+          this.modalPaused = true;
+          this.pushHudUpdate();
+          this.callbacks?.onStage30MinBossCleared(
+            partialSummary,
+            () => {
+              this.modalPaused = false;
+              this.hp = Math.min(this.stats.maxHp, this.hp + Math.round(this.stats.maxHp * 0.5));
+              this.callbacks?.onBannerAnnouncement(
+                'ATO IV DESBLOQUEADO · RUMO AOS 40:00!',
+                'Sobreviva até o Chefão Supremo aos 40 minutos para finalizar de vez a fase!'
+              );
+              this.pushHudUpdate();
+            },
+            () => {
+              this.finishRun(true);
+            }
+          );
+        });
+      } else if (enemy.bossRole === 'major_20_boss') {
+        this.spawnRelicChest(enemy.x - 24, enemy.y);
+        this.spawnRelicChest(enemy.x + 24, enemy.y);
+        this.callbacks?.onBannerAnnouncement(
+          '1º CHEFÃO DERROTADO!',
+          '2 Relicários Dourados obtidos! O 2º Chefão aguarda aos 30:00!'
+        );
       } else {
         this.spawnRelicChest(enemy.x, enemy.y);
       }
@@ -3104,7 +3212,7 @@ export class ArenaScene extends Phaser.Scene {
   private pushHudUpdate(): void {
     let activeBoss: EnemyRuntime | undefined;
     for (const e of this.enemies) {
-      if (e.active && !e.dying && e.def.isBoss) {
+      if (e.active && !e.dying && (e.bossRole !== 'none' || e.def.isBoss)) {
         activeBoss = e;
         break;
       }
@@ -3134,7 +3242,7 @@ export class ArenaScene extends Phaser.Scene {
       inventory: this.inventory,
       boss: activeBoss
         ? {
-            name: activeBoss.def.name,
+            name: activeBoss.displayName,
             hp: Math.max(0, Math.ceil(activeBoss.hp)),
             maxHp: activeBoss.maxHp,
           }

@@ -381,6 +381,7 @@ export class UIManager {
       <span>Hordas ×${active.hordeMult.toFixed(1)}</span>
       <span>Almas ×${active.soulMult.toFixed(1)}</span>
       <span>Elites ${Math.round(active.eliteChance * 100)}%</span>
+      <span>Sub-Chefes a cada ${active.subBossIntervalSec}s · Hordas a cada ${active.surgeIntervalSec}s</span>
     `;
 
     wrap.append(tabs, meta);
@@ -602,7 +603,7 @@ export class UIManager {
           ${st.lore}
         </p>
         <div style="font-size:0.75rem; color:#ffe79e; margin-bottom:8px">
-          ✦ 4 Atos de 10 min · 6 Slots Evoluíveis até 👑 Ultimate · ${st.enemyPool.length} Espécies na Região
+          ✦ 1º Chefão (20:00) · 2º Chefão (30:00 · Vencer ou Continuar) · Supremo (40:00) · ${st.enemyPool.length} Espécies
         </div>
       </div>
 
@@ -912,6 +913,8 @@ export class UIManager {
         onRelicChestOpen: (reward, onClose) => this.showRelicChestModal(reward, onClose),
         onBannerAnnouncement: (title, sub) => this.showBanner(title, sub),
         onPauseChanged: (paused) => this.handlePauseModal(paused),
+        onStage30MinBossCleared: (summary, onContinue, onFinish) =>
+          this.showStage30MinClearedModal(summary, onContinue, onFinish),
         onRunEnded: (summary) => this.showRunSummaryModal(summary),
       });
     });
@@ -1424,6 +1427,62 @@ export class UIManager {
         this.onStopArena();
         this.renderTitleScreen();
       });
+    });
+
+    this.modalHostEl.replaceChildren(backdrop);
+  }
+
+  private showStage30MinClearedModal(
+    summary: RunSummary,
+    onContinueTo40: () => void,
+    onFinishStageNow: () => void
+  ): void {
+    this.saveRunRecord({ ...summary, victory: true });
+    if (!this.modalHostEl) return;
+
+    const hero = HEROES[summary.heroId];
+    const currentStage = STAGES.find((s) => s.id === summary.stageId) ?? STAGES[0];
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop';
+    backdrop.dataset.testid = 'stage-30min-modal';
+
+    backdrop.innerHTML = `
+      <div class="modal-panel" style="max-width:520px; border-color: rgba(255,215,130,0.6)">
+        <h2 class="modal-title" style="color:#ffe79e">
+          ✦ 2º CHEFÃO DOS 30 MINUTOS ABATIDO!
+        </h2>
+        <p class="modal-subtitle">
+          A Fase ${currentStage.roman} (${currentStage.name}) já pode ser finalizada agora com Vitória, ou você pode enfrentar o Ato IV Supremo até os 40:00!
+        </p>
+        <p style="font-size:0.8rem; color:#cbbad8; margin:-4px 0 12px">
+          ${hero.name} · ${DIFFICULTIES[summary.difficultyId].label} · +180 Almas conquistadas
+        </p>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:16px; text-align:left">
+          <div class="stat-pill">Tempo: <strong>${formatClock(summary.elapsedSeconds)} / 40:00</strong></div>
+          <div class="stat-pill">Nível: <strong>${summary.level}</strong></div>
+          <div class="stat-pill">Abates: <strong>${summary.kills}</strong></div>
+          <div class="stat-pill">Almas: <strong>${summary.souls}</strong></div>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:10px">
+          <button type="button" class="btn-gothic" data-testid="continue-to-40-btn">
+            ⚔ Continuar até 40:00 (Ato IV · Sobrevivência Suprema)
+          </button>
+          <button type="button" class="btn-gothic secondary" data-testid="finish-at-30-btn">
+            👑 Finalizar de Vez a Fase (Vitória)
+          </button>
+        </div>
+      </div>
+    `;
+
+    backdrop.querySelector('[data-testid="continue-to-40-btn"]')?.addEventListener('click', () => {
+      backdrop.remove();
+      onContinueTo40();
+    });
+    backdrop.querySelector('[data-testid="finish-at-30-btn"]')?.addEventListener('click', () => {
+      backdrop.remove();
+      onFinishStageNow();
     });
 
     this.modalHostEl.replaceChildren(backdrop);

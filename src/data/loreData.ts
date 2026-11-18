@@ -16,6 +16,12 @@ export interface DifficultyDefinition {
   soulMult: number;
   chaliceDropChance: number;
   eliteChance: number;
+  subBossIntervalSec: number;
+  subBossBaseCount: number;
+  surgeIntervalSec: number;
+  bossEscortCount: number;
+  bossAbilityCdMult: number;
+  timeRampExponent: number;
 }
 
 export const DIFFICULTY_ORDER: DifficultyId[] = ['normal', 'hard', 'epic', 'holi_shit'];
@@ -35,6 +41,12 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyDefinition> = {
     soulMult: 1.0,
     chaliceDropChance: 0.07,
     eliteChance: 0.04,
+    subBossIntervalSec: 90,
+    subBossBaseCount: 1,
+    surgeIntervalSec: 35,
+    bossEscortCount: 16,
+    bossAbilityCdMult: 1.0,
+    timeRampExponent: 1.72,
   },
   hard: {
     id: 'hard',
@@ -50,6 +62,12 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyDefinition> = {
     soulMult: 1.35,
     chaliceDropChance: 0.05,
     eliteChance: 0.09,
+    subBossIntervalSec: 75,
+    subBossBaseCount: 1,
+    surgeIntervalSec: 28,
+    bossEscortCount: 24,
+    bossAbilityCdMult: 0.82,
+    timeRampExponent: 1.85,
   },
   epic: {
     id: 'epic',
@@ -65,6 +83,12 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyDefinition> = {
     soulMult: 1.8,
     chaliceDropChance: 0.035,
     eliteChance: 0.15,
+    subBossIntervalSec: 60,
+    subBossBaseCount: 2,
+    surgeIntervalSec: 22,
+    bossEscortCount: 34,
+    bossAbilityCdMult: 0.68,
+    timeRampExponent: 1.98,
   },
   holi_shit: {
     id: 'holi_shit',
@@ -80,6 +104,12 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyDefinition> = {
     soulMult: 2.5,
     chaliceDropChance: 0.02,
     eliteChance: 0.25,
+    subBossIntervalSec: 45,
+    subBossBaseCount: 2,
+    surgeIntervalSec: 16,
+    bossEscortCount: 48,
+    bossAbilityCdMult: 0.55,
+    timeRampExponent: 2.12,
   },
 };
 
@@ -265,7 +295,11 @@ export interface StageDefinition {
   };
   propStyle: 'forest' | 'castle' | 'dungeon' | 'volcano' | 'metropolis' | 'temple' | 'inferno';
   enemyPool: EnemyKind[];
+  subBossPool: EnemyKind[];
   midBoss: EnemyKind;
+  boss20Min: EnemyKind;
+  boss30Min: EnemyKind;
+  boss40Min: EnemyKind;
   finalBoss: EnemyKind;
 }
 
@@ -409,7 +443,11 @@ export const STAGES: StageDefinition[] = [
     },
     propStyle: 'forest',
     enemyPool: ['bat', 'flagellant', 'dryad', 'werewolf', 'bone_crawler', 'necromancer', 'mist_steed'],
+    subBossPool: ['werewolf', 'dryad', 'necromancer', 'mist_steed'],
     midBoss: 'boss_fenrir',
+    boss20Min: 'boss_morghul',
+    boss30Min: 'boss_fenrir',
+    boss40Min: 'boss_reaper',
     finalBoss: 'boss_fenrir',
   },
   {
@@ -436,7 +474,11 @@ export const STAGES: StageDefinition[] = [
     },
     propStyle: 'castle',
     enemyPool: ['bat', 'banshee', 'gargoyle', 'necromancer', 'hollow_knight', 'fallen_seraph'],
+    subBossPool: ['banshee', 'gargoyle', 'necromancer', 'hollow_knight'],
     midBoss: 'boss_carmilla',
+    boss20Min: 'boss_vane',
+    boss30Min: 'boss_carmilla',
+    boss40Min: 'boss_reaper',
     finalBoss: 'boss_carmilla',
   },
   {
@@ -463,7 +505,11 @@ export const STAGES: StageDefinition[] = [
     },
     propStyle: 'dungeon',
     enemyPool: ['skeleton', 'bone_crawler', 'jailer', 'necromancer', 'inquisitor', 'plague_doctor'],
+    subBossPool: ['jailer', 'bone_crawler', 'inquisitor', 'plague_doctor'],
     midBoss: 'boss_morghul',
+    boss20Min: 'boss_ignis',
+    boss30Min: 'boss_morghul',
+    boss40Min: 'boss_reaper',
     finalBoss: 'boss_morghul',
   },
   {
@@ -490,7 +536,11 @@ export const STAGES: StageDefinition[] = [
     },
     propStyle: 'volcano',
     enemyPool: ['magma_imp', 'ash_wraith', 'lava_golem', 'abyssal_worm', 'skeleton', 'mist_steed'],
+    subBossPool: ['lava_golem', 'abyssal_worm', 'ash_wraith', 'magma_imp'],
     midBoss: 'boss_ignis',
+    boss20Min: 'boss_morghul',
+    boss30Min: 'boss_ignis',
+    boss40Min: 'boss_reaper',
     finalBoss: 'boss_ignis',
   },
   {
@@ -517,7 +567,11 @@ export const STAGES: StageDefinition[] = [
     },
     propStyle: 'metropolis',
     enemyPool: ['flagellant', 'plague_doctor', 'inquisitor', 'gargoyle', 'ash_wraith', 'hollow_knight', 'werewolf'],
+    subBossPool: ['hollow_knight', 'inquisitor', 'plague_doctor', 'werewolf'],
     midBoss: 'boss_vane',
+    boss20Min: 'boss_carmilla',
+    boss30Min: 'boss_vane',
+    boss40Min: 'boss_malakor',
     finalBoss: 'boss_vane',
   },
   {
@@ -544,7 +598,11 @@ export const STAGES: StageDefinition[] = [
     },
     propStyle: 'temple',
     enemyPool: ['fallen_seraph', 'inquisitor', 'gargoyle', 'hollow_knight', 'necromancer', 'banshee', 'jailer'],
+    subBossPool: ['fallen_seraph', 'inquisitor', 'gargoyle', 'hollow_knight'],
     midBoss: 'boss_malakor',
+    boss20Min: 'boss_vane',
+    boss30Min: 'boss_malakor',
+    boss40Min: 'boss_reaper',
     finalBoss: 'boss_malakor',
   },
   {
@@ -571,7 +629,11 @@ export const STAGES: StageDefinition[] = [
     },
     propStyle: 'inferno',
     enemyPool: ['hell_fiend', 'abyssal_worm', 'ash_wraith', 'lava_golem', 'fallen_seraph', 'hollow_knight', 'werewolf'],
+    subBossPool: ['hell_fiend', 'abyssal_worm', 'ash_wraith', 'lava_golem'],
     midBoss: 'boss_malakor',
+    boss20Min: 'boss_ignis',
+    boss30Min: 'boss_malakor',
+    boss40Min: 'boss_reaper',
     finalBoss: 'boss_reaper',
   },
 ];

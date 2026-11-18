@@ -1,5 +1,7 @@
 import {
   BaseWeaponId,
+  DIFFICULTIES,
+  DifficultyId,
   EvolvedWeaponId,
   getRelicIconUrl,
   getWeaponIconUrl,
@@ -516,4 +518,91 @@ export function resolveRelicChest(
   }
   const anyChoices = buildUpgradeChoices(inv, 3, rng);
   return anyChoices[0];
+}
+
+export interface IntraMatchEscalation {
+  act: 1 | 2 | 3 | 4;
+  actName: string;
+  hpMult: number;
+  dmgMult: number;
+  spdMult: number;
+  xpMult: number;
+  knockbackBonus: number;
+  maxHorde: number;
+  spawnsPerSecond: number;
+  packSize: number;
+  powerPressure: number;
+}
+
+/**
+ * Computes adaptive enemy pressure based on hero level, Evolved/Ultimate awakenings,
+ * and Limit Break stacks so late-game builds always face a fierce challenge.
+ */
+export function computePlayerPowerPressure(inv: InventoryState): number {
+  let evolvedCount = 0;
+  let ultimateCount = 0;
+  for (const wId of Object.keys(inv.weapons) as WeaponId[]) {
+    const def = WEAPONS[wId];
+    if (def.isUltimate) ultimateCount += 1;
+    else if (def.isEvolved) evolvedCount += 1;
+  }
+  return (
+    1 +
+    Math.max(0, inv.level - 3) * 0.045 +
+    evolvedCount * 0.28 +
+    ultimateCount * 0.65 +
+    (inv.ascensionMight ?? 0) * 1.2
+  );
+}
+
+/**
+ * Computes continuous intra-match horde size, spawn cadence, enemy toughness, damage, speed,
+ * and knockback resistance across all 4 acts — escalating steeply even in Normal mode.
+ */
+export function computeIntraMatchEscalation(
+  elapsedSeconds: number,
+  difficultyId: DifficultyId,
+  inv: InventoryState
+): IntraMatchEscalation {
+  const mins = Math.max(0, elapsedSeconds / 60);
+  const d = DIFFICULTIES[difficultyId] ?? DIFFICULTIES.normal;
+  const powerPressure = computePlayerPowerPressure(inv);
+
+  const act: 1 | 2 | 3 | 4 = mins < 10 ? 1 : mins < 20 ? 2 : mins < 30 ? 3 : 4;
+  const actName =
+    act === 1
+      ? 'Ato I · Primeiro Véu'
+      : act === 2
+        ? 'Ato II · Sangue Crescente'
+        : act === 3
+          ? 'Ato III · Noite Profunda'
+          : 'Ato IV · Apocalipse Carmesim';
+
+  const timeHp = 1 + mins * 0.28 + Math.pow(mins, d.timeRampExponent) * 0.075;
+  const hpMult = timeHp * powerPressure * d.hpMult;
+  const dmgMult = (1 + mins * 0.085 + Math.pow(mins / 8, 1.4) * 0.42) * d.dmgMult;
+  const spdMult = Math.min(1.95, (1 + mins * 0.016) * d.spdMult);
+  const xpMult = (1.1 + mins * 0.085) * d.xpMult;
+  const knockbackBonus = Math.min(0.45, mins * 0.013);
+  const maxHorde = Math.min(
+    640,
+    Math.round((78 + mins * 15.5 + Math.pow(mins, 1.32) * 2.1) * d.hordeMult)
+  );
+  const spawnsPerSecond =
+    (4.2 + mins * 0.92 + Math.pow(mins / 5, 1.45) * 1.35) * d.spawnRateMult;
+  const packSize = 1 + Math.floor(mins / 4);
+
+  return {
+    act,
+    actName,
+    hpMult,
+    dmgMult,
+    spdMult,
+    xpMult,
+    knockbackBonus,
+    maxHorde,
+    spawnsPerSecond,
+    packSize,
+    powerPressure,
+  };
 }

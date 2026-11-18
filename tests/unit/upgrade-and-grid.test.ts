@@ -16,6 +16,8 @@ import {
   applyUpgradeChoice,
   buildUpgradeChoices,
   computeEffectiveStats,
+  computeIntraMatchEscalation,
+  computePlayerPowerPressure,
   createInitialInventory,
   getActiveSynergyPairs,
   getAvailableEvolutions,
@@ -167,5 +169,60 @@ describe('Vespera — Difficulties, Ultimates, 27 Enemies, 40-Min Stages & 36 Ic
 
     const choices = buildUpgradeChoices(createInitialInventory('seraphina'), 3, () => 0.5);
     expect(choices).toHaveLength(3);
+  });
+
+  it('configures unified 20/30/40m boss milestones and regional subBossPool across all 7 stages and 4 difficulties', () => {
+    const subIntervals = DIFFICULTY_ORDER.map((id) => DIFFICULTIES[id].subBossIntervalSec);
+    const surgeIntervals = DIFFICULTY_ORDER.map((id) => DIFFICULTIES[id].surgeIntervalSec);
+    const escorts = DIFFICULTY_ORDER.map((id) => DIFFICULTIES[id].bossEscortCount);
+    const bossCds = DIFFICULTY_ORDER.map((id) => DIFFICULTIES[id].bossAbilityCdMult);
+    const ramps = DIFFICULTY_ORDER.map((id) => DIFFICULTIES[id].timeRampExponent);
+
+    expect(new Set(subIntervals).size).toBe(4);
+    expect(new Set(surgeIntervals).size).toBe(4);
+    expect(new Set(escorts).size).toBe(4);
+    expect(new Set(bossCds).size).toBe(4);
+    expect(new Set(ramps).size).toBe(4);
+
+    for (const stage of STAGES) {
+      expect(stage.subBossPool.length).toBeGreaterThanOrEqual(4);
+      expect(stage.boss20Min.length).toBeGreaterThan(0);
+      expect(stage.boss30Min.length).toBeGreaterThan(0);
+      expect(stage.boss40Min.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('escalates horde count and enemy stats steeply even in normal difficulty and reacts to player weapon evolution power', () => {
+    const baseInv = createInitialInventory('alaric');
+    const times = [0, 600, 1200, 1800, 2400];
+    const snaps = times.map((t) => computeIntraMatchEscalation(t, 'normal', baseInv));
+
+    for (let i = 1; i < snaps.length; i++) {
+      expect(snaps[i].hpMult).toBeGreaterThan(snaps[i - 1].hpMult);
+      expect(snaps[i].dmgMult).toBeGreaterThan(snaps[i - 1].dmgMult);
+      expect(snaps[i].spdMult).toBeGreaterThan(snaps[i - 1].spdMult);
+      expect(snaps[i].knockbackBonus).toBeGreaterThanOrEqual(snaps[i - 1].knockbackBonus);
+      expect(snaps[i].maxHorde).toBeGreaterThanOrEqual(snaps[i - 1].maxHorde);
+      expect(snaps[i].spawnsPerSecond).toBeGreaterThan(snaps[i - 1].spawnsPerSecond);
+      expect(snaps[i].packSize).toBeGreaterThanOrEqual(snaps[i - 1].packSize);
+    }
+
+    expect(snaps[2].maxHorde).toBeGreaterThan(snaps[0].maxHorde);
+    expect(snaps[4].maxHorde).toBeGreaterThanOrEqual(snaps[2].maxHorde);
+    expect(snaps[0].knockbackBonus).toBeLessThan(snaps[4].knockbackBonus);
+    expect(snaps[0].packSize).toBeLessThan(snaps[4].packSize);
+
+    const strongInv = createInitialInventory('alaric');
+    strongInv.level = 42;
+    delete strongInv.weapons.whip;
+    strongInv.weapons.celestial_blade = 3;
+    strongInv.weapons.excalibur_zenith = 3;
+
+    expect(computePlayerPowerPressure(strongInv)).toBeGreaterThan(
+      computePlayerPowerPressure(baseInv)
+    );
+    const midNormalWeak = computeIntraMatchEscalation(1200, 'normal', baseInv);
+    const midNormalStrong = computeIntraMatchEscalation(1200, 'normal', strongInv);
+    expect(midNormalStrong.hpMult).toBeGreaterThan(midNormalWeak.hpMult);
   });
 });
