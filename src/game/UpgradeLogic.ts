@@ -8,6 +8,7 @@ import {
   HeroStats,
   RELICS,
   RelicId,
+  UltimateWeaponId,
   WEAPONS,
   WeaponId,
 } from '../data/loreData';
@@ -25,6 +26,18 @@ export const ALL_BASE_WEAPONS: BaseWeaponId[] = [
   'daggers',
   'flask',
   'cross',
+];
+
+export const ALL_EVOLVED_WEAPONS: EvolvedWeaponId[] = [
+  'blood_rose',
+  'star_torrent',
+  'immortal_vesper',
+  'eclipse_scythe',
+  'devouring_shroud',
+  'seven_judgment',
+  'thousand_fangs',
+  'purifying_tide',
+  'celestial_blade',
 ];
 
 export const ALL_RELICS: RelicId[] = [
@@ -51,7 +64,7 @@ export interface InventoryState {
   ascensionHp?: number;
 }
 
-export type UpgradeKind = 'weapon' | 'relic' | 'evolution' | 'blessing';
+export type UpgradeKind = 'weapon' | 'relic' | 'evolution' | 'ultimate' | 'blessing';
 
 export interface UpgradeChoice {
   uid: string;
@@ -132,14 +145,38 @@ export function getAvailableEvolutions(inv: InventoryState): EvolvedWeaponId[] {
   for (const baseId of ALL_BASE_WEAPONS) {
     const lv = inv.weapons[baseId] ?? 0;
     const def = WEAPONS[baseId];
+    const evoDef = def.evolvesInto ? WEAPONS[def.evolvesInto] : undefined;
+    const hasUltimate = Boolean(evoDef?.ultimateInto && inv.weapons[evoDef.ultimateInto]);
     if (
       lv >= def.maxLevel &&
       def.catalystRelic &&
       (inv.relics[def.catalystRelic] ?? 0) >= 1 &&
       def.evolvesInto &&
-      !inv.weapons[def.evolvesInto]
+      !inv.weapons[def.evolvesInto] &&
+      !hasUltimate
     ) {
       ready.push(def.evolvesInto);
+    }
+  }
+  return ready;
+}
+
+export function getAvailableUltimates(inv: InventoryState): UltimateWeaponId[] {
+  const ready: UltimateWeaponId[] = [];
+
+  for (const evoId of ALL_EVOLVED_WEAPONS) {
+    const lv = inv.weapons[evoId] ?? 0;
+    const evoDef = WEAPONS[evoId];
+    const baseDef = evoDef.evolvesFrom ? WEAPONS[evoDef.evolvesFrom] : undefined;
+    const catalystId = baseDef?.catalystRelic;
+    if (
+      lv >= evoDef.maxLevel &&
+      catalystId &&
+      (inv.relics[catalystId] ?? 0) >= 2 &&
+      evoDef.ultimateInto &&
+      !inv.weapons[evoDef.ultimateInto]
+    ) {
+      ready.push(evoDef.ultimateInto);
     }
   }
   return ready;
@@ -149,10 +186,13 @@ export function getActiveSynergyPairs(inv: InventoryState): Set<BaseWeaponId> {
   const pairs = new Set<BaseWeaponId>();
   for (const baseId of ALL_BASE_WEAPONS) {
     const def = WEAPONS[baseId];
+    const evoDef = def.evolvesInto ? WEAPONS[def.evolvesInto] : undefined;
+    const ultId = evoDef?.ultimateInto;
     const hasBase = (inv.weapons[baseId] ?? 0) > 0;
     const hasEvolved = Boolean(def.evolvesInto && (inv.weapons[def.evolvesInto] ?? 0) > 0);
+    const hasUltimate = Boolean(ultId && (inv.weapons[ultId] ?? 0) > 0);
     const hasRelic = Boolean(def.catalystRelic && (inv.relics[def.catalystRelic] ?? 0) > 0);
-    if (hasBase || hasEvolved || hasRelic) {
+    if (hasBase || hasEvolved || hasUltimate || hasRelic) {
       pairs.add(baseId);
     }
   }
@@ -163,9 +203,17 @@ export function getMissingCatalystsForOwnedWeapons(inv: InventoryState): Set<Rel
   const missing = new Set<RelicId>();
   for (const baseId of ALL_BASE_WEAPONS) {
     const def = WEAPONS[baseId];
+    const evoDef = def.evolvesInto ? WEAPONS[def.evolvesInto] : undefined;
+    const ultId = evoDef?.ultimateInto;
     const hasBase = (inv.weapons[baseId] ?? 0) > 0;
-    const alreadyEvolved = Boolean(def.evolvesInto && inv.weapons[def.evolvesInto]);
-    if (hasBase && !alreadyEvolved && def.catalystRelic && !(inv.relics[def.catalystRelic] ?? 0)) {
+    const hasEvolved = Boolean(def.evolvesInto && inv.weapons[def.evolvesInto]);
+    const hasUltimate = Boolean(ultId && inv.weapons[ultId]);
+    if (
+      (hasBase || hasEvolved) &&
+      !hasUltimate &&
+      def.catalystRelic &&
+      !(inv.relics[def.catalystRelic] ?? 0)
+    ) {
       missing.add(def.catalystRelic);
     }
   }
@@ -185,9 +233,67 @@ export function buildUpgradeChoices(
   // guaranteeing that all 6 weapon slots can ALWAYS acquire their catalyst relic and evolve!
   const lockToActivePairs = activePairs.size >= MAX_WEAPON_SLOTS;
 
+  // Ready Ultimates can awaken right on Level-Up (as well as from Relic Chests)!
+  const readyUltimates = getAvailableUltimates(inv);
+  for (const ultId of readyUltimates) {
+    const ultDef = WEAPONS[ultId];
+    const evoDef = ultDef.ultimateOf ? WEAPONS[ultDef.ultimateOf] : undefined;
+    const baseDef = evoDef?.evolvesFrom ? WEAPONS[evoDef.evolvesFrom] : undefined;
+    const cat = baseDef?.catalystRelic ? RELICS[baseDef.catalystRelic] : undefined;
+    pool.push({
+      uid: `ultimate:${ultId}`,
+      kind: 'ultimate',
+      weaponId: ultId,
+      iconUrl: getWeaponIconUrl(ultId),
+      title: ultDef.name,
+      subtitle: '👑 EVOLUÇÃO ULTIMATE',
+      description: ultDef.descriptions[0] ?? ultDef.tagline,
+      currentLevel: 0,
+      nextLevel: 1,
+      maxLevel: 1,
+      accentColor: ultDef.iconColor,
+      synergyHint: `Transcende ${evoDef?.name ?? ''}${cat ? ` + ${cat.name} Nv.2+` : ''}`,
+    });
+  }
+
+  // Owned Evolved Weapons can advance Grau 1 -> Grau 3 toward their Ultimate!
+  for (const evoId of ALL_EVOLVED_WEAPONS) {
+    const current = inv.weapons[evoId] ?? 0;
+    const def = WEAPONS[evoId];
+    if (current <= 0 || current >= def.maxLevel) continue;
+    if (def.ultimateInto && inv.weapons[def.ultimateInto]) continue;
+
+    const next = current + 1;
+    const baseDef = def.evolvesFrom ? WEAPONS[def.evolvesFrom] : undefined;
+    const cat = baseDef?.catalystRelic ? RELICS[baseDef.catalystRelic] : undefined;
+    const hasCat2 = Boolean(baseDef?.catalystRelic && (inv.relics[baseDef.catalystRelic] ?? 0) >= 2);
+    const ultDef = def.ultimateInto ? WEAPONS[def.ultimateInto] : undefined;
+
+    pool.push({
+      uid: `weapon:${evoId}:${next}`,
+      kind: 'weapon',
+      weaponId: evoId,
+      iconUrl: getWeaponIconUrl(evoId),
+      title: def.name,
+      subtitle: `★ Ancestral · Grau ${current} → ${next}`,
+      description: def.descriptions[next - 1] ?? def.tagline,
+      currentLevel: current,
+      nextLevel: next,
+      maxLevel: def.maxLevel,
+      accentColor: def.iconColor,
+      synergyHint: ultDef
+        ? hasCat2
+          ? `👑 Rumo à Ultimate: ${ultDef.name}`
+          : `Ultimate com ${cat?.name ?? 'Relíquia'} Nv.2+`
+        : undefined,
+    });
+  }
+
   for (const wId of ALL_BASE_WEAPONS) {
     const def = WEAPONS[wId];
+    const evoDef = def.evolvesInto ? WEAPONS[def.evolvesInto] : undefined;
     if (def.evolvesInto && inv.weapons[def.evolvesInto]) continue;
+    if (evoDef?.ultimateInto && inv.weapons[evoDef.ultimateInto]) continue;
 
     const current = inv.weapons[wId] ?? 0;
     if (current >= def.maxLevel) continue;
@@ -229,9 +335,11 @@ export function buildUpgradeChoices(
 
     const next = current + 1;
     const synWeapon = WEAPONS[def.synergyWeapon];
+    const synEvoDef = synWeapon.evolvesInto ? WEAPONS[synWeapon.evolvesInto] : undefined;
     const hasWeapon =
       (inv.weapons[def.synergyWeapon] ?? 0) > 0 ||
-      Boolean(synWeapon.evolvesInto && inv.weapons[synWeapon.evolvesInto]);
+      Boolean(synWeapon.evolvesInto && inv.weapons[synWeapon.evolvesInto]) ||
+      Boolean(synEvoDef?.ultimateInto && inv.weapons[synEvoDef.ultimateInto]);
 
     pool.push({
       uid: `relic:${rId}:${next}`,
@@ -253,8 +361,11 @@ export function buildUpgradeChoices(
 
   const weighted = pool.map((choice) => {
     let weight = 1.0;
-    if (choice.currentLevel > 0) weight += 0.9;
-    if (choice.synergyHint?.startsWith('★')) weight += 1.45;
+    if (choice.kind === 'ultimate') weight = 4.8;
+    else {
+      if (choice.currentLevel > 0) weight += 0.9;
+      if (choice.synergyHint?.startsWith('★') || choice.synergyHint?.startsWith('👑')) weight += 1.45;
+    }
     return { choice, sortKey: Math.pow(rng(), 1 / weight) };
   });
   weighted.sort((a, b) => b.sortKey - a.sortKey);
@@ -315,9 +426,9 @@ export function buildUpgradeChoices(
 export function applyUpgradeChoice(
   inv: InventoryState,
   choice: UpgradeChoice
-): { healedHp: number; evolvedWeapon?: EvolvedWeaponId } {
+): { healedHp: number; evolvedWeapon?: WeaponId } {
   let healedHp = 0;
-  let evolvedWeapon: EvolvedWeaponId | undefined;
+  let evolvedWeapon: WeaponId | undefined;
 
   if (choice.kind === 'weapon' && choice.weaponId) {
     inv.weapons[choice.weaponId] = choice.nextLevel;
@@ -332,8 +443,16 @@ export function applyUpgradeChoice(
       delete inv.weapons[evoDef.evolvesFrom];
     }
     inv.weapons[choice.weaponId] = 1;
-    evolvedWeapon = choice.weaponId as EvolvedWeaponId;
+    evolvedWeapon = choice.weaponId;
     healedHp += 35;
+  } else if (choice.kind === 'ultimate' && choice.weaponId) {
+    const ultDef = WEAPONS[choice.weaponId];
+    if (ultDef.ultimateOf) {
+      delete inv.weapons[ultDef.ultimateOf];
+    }
+    inv.weapons[choice.weaponId] = 1;
+    evolvedWeapon = choice.weaponId;
+    healedHp += 50;
   } else if (choice.kind === 'blessing') {
     if (choice.blessingType === 'might') {
       inv.ascensionMight = (inv.ascensionMight ?? 0) + 0.1;
@@ -353,6 +472,25 @@ export function resolveRelicChest(
   inv: InventoryState,
   rng: () => number = Math.random
 ): UpgradeChoice {
+  const ultimates = getAvailableUltimates(inv);
+  if (ultimates.length > 0) {
+    const ultId = ultimates[Math.floor(rng() * ultimates.length)];
+    const ultDef = WEAPONS[ultId];
+    return {
+      uid: `ultimate:${ultId}`,
+      kind: 'ultimate',
+      weaponId: ultId,
+      iconUrl: getWeaponIconUrl(ultId),
+      title: ultDef.name,
+      subtitle: '👑 EVOLUÇÃO ULTIMATE DESPERTA 👑',
+      description: ultDef.tagline,
+      currentLevel: 0,
+      nextLevel: 1,
+      maxLevel: 1,
+      accentColor: ultDef.iconColor,
+    };
+  }
+
   const evolutions = getAvailableEvolutions(inv);
   if (evolutions.length > 0) {
     const evoId = evolutions[Math.floor(rng() * evolutions.length)];

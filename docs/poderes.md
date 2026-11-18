@@ -1,29 +1,31 @@
-# Lista Completa de Poderes, Relíquias e Evoluções (`Vespera: Eclipse Carmesim`)
+# Lista Completa de Poderes, Relíquias, Evoluções e Ultimates (`Vespera: Eclipse Carmesim`)
 
-Este guia resume todos os **27 Poderes** atualmente no jogo (**9 Armas Sagradas**, **9 Relíquias Passivas** e **9 Evoluções Ancestrais**), além da habilidade ativa universal de esquiva.
+Este guia resume todos os **36 Poderes** atualmente no jogo (**9 Armas Sagradas**, **9 Relíquias Passivas**, **9 Evoluções Ancestrais ★** e **9 Evoluções Ultimate 👑**), além da habilidade ativa universal de esquiva.
 
 ---
 
 ## 1. Habilidade Ativa Universal (Todos os Heróis)
-- **Passo Espectral (`Espaço` ou botão `PASSO ESPECTRAL` na tela):** Deslize curto invulnerável (0.34s de invencibilidade e 2.6s de recarga) que atravessa inimigos deixando rastros astrais luminosos.
+- **Passo Espectral (`Espaço` ou botão `PASSO ESPECTRAL` com suporte a dois polegares simultâneos):** Deslize rápido invulnerável que atravessa a horda deixando rastros astrais, empurra inimigos próximos e interage com a física das chamas.
 
 ---
 
-## 2. Armas Sagradas (9) & Suas Evoluções em Baús (9)
+## 2. Armas Sagradas (9), Evoluções Ancestrais (9) e Ultimates (9)
 
-> **Regra de Evolução Completa dos 6 Slots (Partidas de 40 Minutos):** Suba a **Arma Sagrada até o Nível 5**, tenha pelo menos **Nível 1 da Relíquia Catalisadora** correspondente no inventário e colete um dos **11 Relicários Dourados (Baús)** deixados pelos Campeões ao longo dos 4 Atos (`00:00` · `10:00` · `20:00` · `30:00`). O sistema reserva automaticamente slots compatíveis entre armas e catalisadores para que **todas as 6 armas equipadas possam evoluir** na mesma partida! Todos os 27 poderes contam com ícones ilustrados em `public/art/icons/<id>.webp`.
+> **Regra de Evolução & Ultimate (Partidas de 40 Minutos):**
+> 1. **Evolução Ancestral ★:** Suba a **Arma Base até o Grau 5**, tenha **Grau 1+ da Relíquia Catalisadora** e colete um **Relicário Dourado**.
+> 2. **Evolução Ultimate 👑:** Evolua a arma **Ancestral ★ até o Grau 3**, tenha **Grau 2+ da Relíquia Catalisadora** e desperte a forma suprema na seleção de nível ou em um Relicário Dourado!
 
-| # | Arma Base (Nv. 1–5) | Como Ataca | Relíquia Catalisadora | Evolução Ancestral | Poder da Evolução |
+| # | Arma Base (Nv. 1–5) | Relíquia Catalisadora | Evolução Ancestral ★ (Nv. 1–3) | Evolução Ultimate 👑 | Poder Ultimate |
 | :- | :--- | :--- | :--- | :--- | :--- |
-| **1** | **Açoite Consagrado** (`whip`) | Cortes horizontais em meia-lua à frente (e atrás no Nv.2+), com empurrão. | **Coração Negro** *(+HP Máx)* | **Rosa Sangrenta** (`blood_rose`) | Cortes cruzados carmesins gigantes com **acerto crítico garantido e roubo de vida**. |
-| **2** | **Cetro de Estilhaços** (`wand`) | Dispara projéteis teleguiados automaticamente no inimigo mais próximo. | **Tomo Vazio** *(-Recarga)* | **Torrente Estelar** (`star_torrent`) | Fluxo contínuo tipo metralhadora de cometas perfurantes sem intervalo. |
-| **3** | **Bíblia das Cinzas** (`bible`) | Grimórios giram em órbita ao redor do herói repelindo quem encosta. | **Selo de Âmbar** *(+Dano/Vel)* | **Véspera Imortal** (`immortal_vesper`) | Anel permanente de **6 grimórios solares** que nunca desaparece. |
-| **4** | **Machado do Carrasco** (`axe`) | Arremesso alto parabólico de grande dano crítico que atravessa fileiras. | **Candelabro Rubro** *(+Área)* | **Foice do Eclipse** (`eclipse_scythe`) | Dispara **foices espectrais em 360°** que atravessam toda a tela. |
-| **5** | **Turíbulo Sagrado** (`thurible`) | Aura circular contínua colada ao herói que queima enxames fracos. | **Sangue de Mercúrio** *(+Regen/Armadura)* | **Mortalha Devoradora** (`devouring_shroud`) | Vórtice carmesim gigante que **drena vida** constantemente da horda. |
-| **6** | **Anel do Trovão Rubro** (`lightning`) | Relâmpagos caem do céu sobre inimigos aleatórios causando explosão em área. | **Anel Duplicador** *(+Projéteis)* | **Julgamento dos Sete** (`seven_judgment`) | Tempestade dupla de relâmpagos solares críticos de grande raio. |
-| **7** | **Adagas Fantasmas** (`daggers`) **[NOVO]** | Leque veloz de punhais disparados **na direção em que você se move**. | **Manopla da Sombra** *(+Vel Projétil/Crit)* | **Mil Presas de Prata** (`thousand_fangs`) | Chuva hipersônica ininterrupta de adagas perfurantes críticas. |
-| **8** | **Fogo Alquímico Bento** (`flask`) **[NOVO]** | Lança frascos que quebram criando **poças de chamas sagradas no chão**. | **Orbe do Crepúsculo** *(+Área/Dano)* | **Maré Purificadora** (`purifying_tide`) | Vórtices colossais de fogo azul que **se movem seguindo o herói**. |
-| **9** | **Cruz do Julgamento** (`cross`) **[NOVO]** | Cruzes giratórias lançadas como **bumerangue** (perfuram na ida e na volta). | **Trevo de Cinza** *(+Crítico/Ímã)* | **Espada Celestial** (`celestial_blade`) | Gládios solares gigantescos que rasgam a tela inteira com crítico elevado. |
+| **1** | **Açoite Consagrado** (`whip`) | **Coração Negro** | **Rosa Sangrenta** (`blood_rose`) | **Leviatã Abissal** (`abyssal_leviathan`) | 4 cortes transversais titânicos com crítico garantido e alta drenagem de vida. |
+| **2** | **Cetro de Estilhaços** (`wand`) | **Tomo Vazio** | **Torrente Estelar** (`star_torrent`) | **Cajado Supernova** (`supernova_staff`) | Raios estelares triplos contínuos que detonam em supernovas AoE ao atingir. |
+| **3** | **Bíblia das Cinzas** (`bible`) | **Selo de Âmbar** | **Véspera Imortal** (`immortal_vesper`) | **Coro dos Serafins** (`seraphim_choir`) | Duas órbitas contra-rotatórias eternas com 10 escrituras angelicais solares. |
+| **4** | **Machado do Carrasco** (`axe`) | **Candelabro Rubro** | **Foice do Eclipse** (`eclipse_scythe`) | **Guilhotina do Juízo** (`doomsday_guillotine`) | Anel de 8 guilhotinas lunares gigantes com perfuração ilimitada. |
+| **5** | **Turíbulo Sagrado** (`thurible`) | **Sangue de Mercúrio** | **Mortalha Devoradora** (`devouring_shroud`) | **Eclipse Carmesim Vivo** (`crimson_eclipse_aura`) | Domínio colossal que incinera a horda com chamas físicas e drena vitalidade. |
+| **6** | **Anel do Trovão Rubro** (`lightning`) | **Anel Duplicador** | **Julgamento dos Sete** (`seven_judgment`) | **Ira de Solaris** (`wrath_of_solaris`) | Tempestade contínua de pilares de trovão e plasma solar com grande área crítica. |
+| **7** | **Adagas Fantasmas** (`daggers`) | **Manopla da Sombra** | **Mil Presas de Prata** (`thousand_fangs`) | **Tempestade Espectral** (`phantom_storm`) | Salvas supersônicas de 7 adagas prateadas perfurantes com crítico letal. |
+| **8** | **Fogo Alquímico Bento** (`flask`) | **Orbe do Crepúsculo** | **Maré Purificadora** (`purifying_tide`) | **Inferno de Gehenna** (`gehenna_inferno`) | Vórtices infernais perseguidores com línguas de fogo físicas e combustão em área. |
+| **9** | **Cruz do Julgamento** (`cross`) | **Trevo de Cinza** | **Espada Celestial** (`celestial_blade`) | **Excalibur do Zênite** (`excalibur_zenith`) | Constelação giratória 360° de 5 gládios solares em bumerangue de crítico absoluto. |
 
 ---
 

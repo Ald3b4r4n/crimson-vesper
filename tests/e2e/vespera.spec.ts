@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('verifies reworked game menu, 27 custom power icons, 40-min arena HUD, and mobile fullscreen landscape', async ({
+test('verifies 4 difficulties, 36 Ultimate Power Grid icons, dense forest & fire physics, and mobile fullscreen landscape', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1366, height: 840 });
@@ -14,42 +14,48 @@ test('verifies reworked game menu, 27 custom power icons, 40-min arena HUD, and 
   await expect(page.getByTestId('fullscreen-btn')).toBeVisible();
   await page.screenshot({ path: 'test-results/preview-splash-menu.png' });
 
-  // 2. Redesigned Power Grid & Synergy Matrix (27 custom .webp icons)
+  // 2. Redesigned Power Grid & Ultimate Matrix (36 custom .webp icons: Base + Relic -> Evolved -> Ultimate)
   await page.getByTestId('tab-powers').click();
   await expect(page.locator('.synergy-row')).toHaveCount(9);
-  await expect(page.locator('.synergy-matrix .power-icon-img')).toHaveCount(27);
+  await expect(page.locator('.synergy-matrix .power-icon-img')).toHaveCount(36);
 
-  // Ensure all 27 illustrated .webp icons loaded cleanly
   const loadedCount = await page
     .locator('.synergy-matrix .power-icon-img')
     .evaluateAll((imgs) =>
       imgs.filter((img) => (img as HTMLImageElement).complete && (img as HTMLImageElement).naturalWidth > 0).length
     );
-  expect(loadedCount).toBe(27);
+  expect(loadedCount).toBe(36);
   await page.screenshot({ path: 'test-results/preview-power-grid.png' });
 
-  // Return to Splash, then enter Hero Select -> Stage Select -> Start 40-Min Run
+  // Return to Splash, then enter Hero Select -> verify Difficulty Selector -> Stage Select -> Start 40-Min Run
   await page.getByRole('button', { name: '← Menu' }).click();
   await page.getByTestId('menu-play-btn').click();
 
   await expect(page.getByTestId('hero-card-alaric')).toBeVisible();
   await page.getByTestId('hero-card-alaric').click();
+  await expect(page.getByTestId('difficulty-normal')).toBeVisible();
+  await expect(page.getByTestId('difficulty-hard')).toBeVisible();
+  await expect(page.getByTestId('difficulty-epic')).toBeVisible();
+  await expect(page.getByTestId('difficulty-holi_shit')).toBeVisible();
+  await page.getByTestId('difficulty-holi_shit').click();
   await page.screenshot({ path: 'test-results/preview-hero-select.png' });
 
   await page.getByTestId('go-stage-select-btn').click();
   await expect(page.getByTestId('stage-card-forest')).toBeVisible();
   await page.getByTestId('stage-card-forest').click();
   await expect(page.locator('.showcase-footer')).toContainText('40:00');
+  await expect(page.locator('.showcase-footer')).toContainText('HOLI SHIT!');
   await page.screenshot({ path: 'test-results/preview-stage-select.png' });
 
   await page.getByTestId('start-run-btn').click();
 
-  // 3. Arena HUD, 40:00 Match Clock, Illustrated HUD Power Rack & Pause Modal
+  // 3. Arena HUD, 40:00 Match Clock, Difficulty Badge, Dense Forest + Fire Physics & Pause Modal
   await expect(page.getByTestId('arena-hud')).toBeVisible({ timeout: 5000 });
   await expect(page.locator('#phaser-container canvas')).toBeVisible();
   await expect(page.locator('[data-clock-time]')).toContainText('/ 40:00');
+  await expect(page.locator('[data-clock-phase]')).toContainText('HOLI SHIT!');
 
-  await page.waitForTimeout(600);
+  await page.waitForTimeout(700);
   const hudIconLoaded = await page
     .locator('.slots-panel .slot-icon-img')
     .first()
@@ -58,7 +64,7 @@ test('verifies reworked game menu, 27 custom power icons, 40-min arena HUD, and 
 
   await page.keyboard.down('KeyD');
   await page.keyboard.down('KeyW');
-  await page.waitForTimeout(750);
+  await page.waitForTimeout(900);
   await page.screenshot({ path: 'test-results/preview-gameplay-forest.png' });
   await page.keyboard.up('KeyD');
   await page.keyboard.up('KeyW');

@@ -1,6 +1,9 @@
 import { gothicAudio } from '../audio/GothicAudio';
 import { gothicSoundtrack } from '../audio/GothicSoundtrack';
 import {
+  DIFFICULTIES,
+  DIFFICULTY_ORDER,
+  DifficultyId,
   ENEMIES,
   getRelicIconUrl,
   getWeaponIconUrl,
@@ -56,10 +59,16 @@ export class UIManager {
   private lastRenderedScreen: MenuScreen | null = null;
   private selectedHero: HeroId = 'alaric';
   private selectedStage: StageId = 'forest';
+  private selectedDifficulty: DifficultyId = 'normal';
   private inspectedPower: InspectedPower = { kind: 'weapon', id: 'whip' };
   private selectedLoreIndex = 0;
 
-  private onStartRun: (heroId: HeroId, stageId: StageId, callbacks: ArenaCallbacks) => void;
+  private onStartRun: (
+    heroId: HeroId,
+    stageId: StageId,
+    difficultyId: DifficultyId,
+    callbacks: ArenaCallbacks
+  ) => void;
   private onSetVirtualJoystick: (dx: number, dy: number) => void;
   private onTriggerDash: () => boolean;
   private onTogglePause: () => void;
@@ -92,7 +101,12 @@ export class UIManager {
     root: HTMLElement,
     viewport: ViewportManager,
     hooks: {
-      onStartRun: (heroId: HeroId, stageId: StageId, callbacks: ArenaCallbacks) => void;
+      onStartRun: (
+        heroId: HeroId,
+        stageId: StageId,
+        difficultyId: DifficultyId,
+        callbacks: ArenaCallbacks
+      ) => void;
       onSetVirtualJoystick: (dx: number, dy: number) => void;
       onTriggerDash: () => boolean;
       onTogglePause: () => void;
@@ -335,6 +349,44 @@ export class UIManager {
     menu.appendChild(status);
   }
 
+  private buildDifficultyStrip(): HTMLElement {
+    const wrap = document.createElement('div');
+    wrap.className = 'difficulty-bar-wrap';
+
+    const tabs = document.createElement('div');
+    tabs.className = 'difficulty-tabs';
+
+    for (const dId of DIFFICULTY_ORDER) {
+      const d = DIFFICULTIES[dId];
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.dataset.testid = `difficulty-${dId}`;
+      btn.className = `diff-pill ${dId === 'holi_shit' ? 'holy-tier' : ''} ${this.selectedDifficulty === dId ? 'selected' : ''}`;
+      btn.style.setProperty('--diff-col', d.color);
+      btn.innerHTML = `<span class="diff-name">${d.label}</span>`;
+      btn.addEventListener('click', () => {
+        gothicAudio.playHit();
+        this.selectedDifficulty = dId;
+        this.renderMenu();
+      });
+      tabs.appendChild(btn);
+    }
+
+    const active = DIFFICULTIES[this.selectedDifficulty];
+    const meta = document.createElement('div');
+    meta.className = 'difficulty-meta';
+    meta.innerHTML = `
+      <span style="color:${active.color}; font-weight:700">${active.subtitle}</span>
+      <span>Vida ×${active.hpMult.toFixed(1)}</span>
+      <span>Hordas ×${active.hordeMult.toFixed(1)}</span>
+      <span>Almas ×${active.soulMult.toFixed(1)}</span>
+      <span>Elites ${Math.round(active.eliteChance * 100)}%</span>
+    `;
+
+    wrap.append(tabs, meta);
+    return wrap;
+  }
+
   private buildHeroSelectScreen(menu: HTMLElement): void {
     const shell = document.createElement('div');
     shell.className = 'subscreen-shell';
@@ -443,10 +495,13 @@ export class UIManager {
       </div>
 
       <div class="showcase-footer">
-        <span style="font-size:0.75rem; color:var(--text-muted)">6 Slots de Armas Evoluíveis · Passo Espectral [Espaço]</span>
+        <span style="font-size:0.75rem; color:var(--text-muted)">Dificuldade: <strong style="color:${DIFFICULTIES[this.selectedDifficulty].color}">${DIFFICULTIES[this.selectedDifficulty].label}</strong> · Passo Espectral [Espaço]</span>
         <button type="button" class="btn-gothic" data-testid="go-stage-select-btn">Escolher Região ➔</button>
       </div>
     `;
+
+    const infoTop = showcase.firstElementChild;
+    infoTop?.appendChild(this.buildDifficultyStrip());
 
     showcase.querySelector('[data-testid="go-stage-select-btn"]')?.addEventListener('click', () => {
       gothicAudio.playWand(false);
@@ -546,18 +601,20 @@ export class UIManager {
         <p style="font-family:var(--font-lore); font-size:1.02rem; line-height:1.36; color:#e2d7e0; margin:10px 0 6px">
           ${st.lore}
         </p>
-        <div style="font-size:0.75rem; color:#ffe79e">
-          ✦ Escalada em 4 Atos de 10 min (00:00 · 10:00 · 20:00 · 30:00) + 11 Relicários para evoluir todas as 6 armas!
+        <div style="font-size:0.75rem; color:#ffe79e; margin-bottom:8px">
+          ✦ 4 Atos de 10 min · 6 Slots Evoluíveis até 👑 Ultimate · ${st.enemyPool.length} Espécies na Região
         </div>
       </div>
 
       <div class="showcase-footer">
         <span style="font-size:0.75rem; color:var(--text-muted)">
-          Partida Completa: <strong>${formatClock(st.durationSeconds)}</strong>
+          Vigília: <strong>${formatClock(st.durationSeconds)}</strong> · <strong style="color:${DIFFICULTIES[this.selectedDifficulty].color}">${DIFFICULTIES[this.selectedDifficulty].label}</strong>
         </span>
         <button type="button" class="btn-gothic" data-testid="start-run-btn">⚔ Iniciar Vigília</button>
       </div>
     `;
+
+    showcase.firstElementChild?.appendChild(this.buildDifficultyStrip());
 
     showcase.querySelector('[data-testid="start-run-btn"]')?.addEventListener('click', async () => {
       if (this.viewport.isMobileViewport() && !this.viewport.isLandscapeActive()) {
@@ -587,14 +644,14 @@ export class UIManager {
     });
     const title = document.createElement('h2');
     title.className = 'subscreen-title';
-    title.textContent = 'Grade de Poderes & Matriz de Evoluções (27)';
+    title.textContent = 'Grade de Poderes & Matriz Ultimate (36)';
     header.append(backBtn, title, document.createElement('div'));
     shell.appendChild(header);
 
     const body = document.createElement('div');
     body.className = 'subscreen-body';
 
-    // Left: 9-Row Visual Synergy Matrix (Arma Base + Relíquia Catalisadora -> Evolução Ancestral!)
+    // Left: 9-Row Visual Synergy Matrix (Arma Base + Relíquia -> ★ Evolução -> 👑 Ultimate)
     const matrix = document.createElement('div');
     matrix.className = 'synergy-matrix';
 
@@ -604,25 +661,35 @@ export class UIManager {
       const catR = RELICS[catId];
       const evoId = baseW.evolvesInto!;
       const evoW = WEAPONS[evoId];
+      const ultId = evoW.ultimateInto!;
+      const ultW = WEAPONS[ultId];
 
       const row = document.createElement('div');
-      row.className = 'synergy-row';
+      row.className = 'synergy-row ultimate-matrix-row';
 
       const makeTile = (
         target: InspectedPower,
         iconUrl: string,
         label: string,
-        isEvolved = false
+        tier: 'base' | 'evolved' | 'ultimate' = 'base'
       ) => {
         const isSel =
           this.inspectedPower.kind === target.kind && this.inspectedPower.id === target.id;
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = `power-icon-tile ${isEvolved ? 'evolved-tile' : ''} ${isSel ? 'selected' : ''}`;
+        const tierCls =
+          tier === 'ultimate' ? 'ultimate-tile' : tier === 'evolved' ? 'evolved-tile' : '';
+        btn.className = `power-icon-tile ${tierCls} ${isSel ? 'selected' : ''}`;
         btn.title = label;
         btn.innerHTML = `
           <img class="power-icon-img" src="${iconUrl}" alt="${label}" />
-          ${isEvolved ? '<span class="evo-star-corner">★</span>' : ''}
+          ${
+            tier === 'ultimate'
+              ? '<span class="evo-star-corner ultimate">👑</span>'
+              : tier === 'evolved'
+                ? '<span class="evo-star-corner">★</span>'
+                : ''
+          }
         `;
         btn.addEventListener('click', () => {
           gothicAudio.playHit();
@@ -636,16 +703,22 @@ export class UIManager {
       plus.className = 'synergy-op';
       plus.textContent = '+';
 
-      const arrow = document.createElement('span');
-      arrow.className = 'synergy-op';
-      arrow.textContent = '➔';
+      const arrow1 = document.createElement('span');
+      arrow1.className = 'synergy-op';
+      arrow1.textContent = '➔';
+
+      const arrow2 = document.createElement('span');
+      arrow2.className = 'synergy-op';
+      arrow2.textContent = '➔';
 
       row.append(
-        makeTile({ kind: 'weapon', id: baseId }, getWeaponIconUrl(baseId), baseW.name),
+        makeTile({ kind: 'weapon', id: baseId }, getWeaponIconUrl(baseId), baseW.name, 'base'),
         plus,
-        makeTile({ kind: 'relic', id: catId }, getRelicIconUrl(catId), catR.name),
-        arrow,
-        makeTile({ kind: 'weapon', id: evoId }, getWeaponIconUrl(evoId), evoW.name, true)
+        makeTile({ kind: 'relic', id: catId }, getRelicIconUrl(catId), catR.name, 'base'),
+        arrow1,
+        makeTile({ kind: 'weapon', id: evoId }, getWeaponIconUrl(evoId), evoW.name, 'evolved'),
+        arrow2,
+        makeTile({ kind: 'weapon', id: ultId }, getWeaponIconUrl(ultId), ultW.name, 'ultimate')
       );
       matrix.appendChild(row);
     }
@@ -658,24 +731,55 @@ export class UIManager {
       const w = WEAPONS[this.inspectedPower.id];
       const cat = w.catalystRelic ? RELICS[w.catalystRelic] : null;
       const evo = w.evolvesInto ? WEAPONS[w.evolvesInto] : null;
+      const evoUlt = evo?.ultimateInto ? WEAPONS[evo.ultimateInto] : null;
       const fromBase = w.evolvesFrom ? WEAPONS[w.evolvesFrom] : null;
       const fromCat = fromBase?.catalystRelic ? RELICS[fromBase.catalystRelic] : null;
+      const myUlt = w.ultimateInto ? WEAPONS[w.ultimateInto] : null;
+      const ultFromEvo = w.ultimateOf ? WEAPONS[w.ultimateOf] : null;
+      const ultFromBase = ultFromEvo?.evolvesFrom ? WEAPONS[ultFromEvo.evolvesFrom] : null;
+      const ultFromCat = ultFromBase?.catalystRelic ? RELICS[ultFromBase.catalystRelic] : null;
 
       const levelsHtml = w.descriptions
         .map(
           (d, idx) =>
-            `<div style="font-size:0.78rem; padding:3px 0; color:#e2d7e0"><strong>${w.isEvolved ? 'Poder Supremo' : `Grau ${idx + 1}`}:</strong> ${d}</div>`
+            `<div style="font-size:0.78rem; padding:3px 0; color:#e2d7e0"><strong>${w.isUltimate ? 'Forma Ultimate' : `Grau ${idx + 1}`}:</strong> ${d}</div>`
         )
         .join('');
+
+      const chainHtml =
+        cat && evo && evoUlt
+          ? `<div class="evo-recipe-box">
+              <span><img class="mini-icon-inline" src="${getWeaponIconUrl(w.id)}" alt="" /> <strong>${w.name} (Nv.5)</strong></span>
+              <span>+</span>
+              <span><img class="mini-icon-inline" src="${getRelicIconUrl(cat.id)}" alt="" /> <strong>${cat.name}</strong></span>
+              <span>➔</span>
+              <span><img class="mini-icon-inline" src="${getWeaponIconUrl(evo.id)}" alt="" /> <strong style="color:#ffe79e">★ ${evo.name} (Nv.3)</strong></span>
+              <span>➔</span>
+              <span><img class="mini-icon-inline" src="${getWeaponIconUrl(evoUlt.id)}" alt="" /> <strong style="color:#ffd166">👑 ${evoUlt.name}</strong></span>
+            </div>`
+          : fromBase && fromCat && myUlt
+            ? `<div class="evo-recipe-box">
+                <span>Evolui de <img class="mini-icon-inline" src="${getWeaponIconUrl(fromBase.id)}" alt="" /> <strong>${fromBase.name}</strong> + <img class="mini-icon-inline" src="${getRelicIconUrl(fromCat.id)}" alt="" /> <strong>${fromCat.name}</strong></span>
+                <span>➔</span>
+                <span>No Nv.3 (+ Relíquia Nv.2): <img class="mini-icon-inline" src="${getWeaponIconUrl(myUlt.id)}" alt="" /> <strong style="color:#ffd166">👑 ${myUlt.name}</strong></span>
+              </div>`
+            : ultFromEvo && ultFromCat
+              ? `<div class="evo-recipe-box">
+                  <span>Forma Ultimate Suprema de <img class="mini-icon-inline" src="${getWeaponIconUrl(ultFromEvo.id)}" alt="" /> <strong>${ultFromEvo.name} (Nv.3)</strong> + <img class="mini-icon-inline" src="${getRelicIconUrl(ultFromCat.id)}" alt="" /> <strong>${ultFromCat.name} (Nv.2+)</strong></span>
+                </div>`
+              : '';
+
+      const badgeColor = w.isUltimate ? '#ffd166' : w.isEvolved ? '#ff8fa3' : '#98f5cb';
+      const tileClass = w.isUltimate ? 'ultimate-tile' : w.isEvolved ? 'evolved-tile' : '';
 
       inspector.innerHTML = `
         <div>
           <div style="display:flex; align-items:center; gap:14px; margin-bottom:10px">
-            <div class="power-icon-tile ${w.isEvolved ? 'evolved-tile' : ''} selected" style="width:72px; height:72px; margin:0; cursor:default">
+            <div class="power-icon-tile ${tileClass} selected" style="width:72px; height:72px; margin:0; cursor:default">
               <img class="power-icon-img" src="${getWeaponIconUrl(w.id)}" alt="${w.name}" />
             </div>
             <div>
-              <div style="font-size:0.72rem; color:${w.isEvolved ? '#ff8fa3' : '#98f5cb'}; text-transform:uppercase; font-weight:700">${w.category}</div>
+              <div style="font-size:0.72rem; color:${badgeColor}; text-transform:uppercase; font-weight:700">${w.category}</div>
               <h3 style="font-family:var(--font-display); font-size:1.4rem; color:var(--gold-bright); margin:2px 0">${w.name}</h3>
               <div style="font-size:0.76rem; color:var(--text-muted)">${w.mechanicSummary}</div>
             </div>
@@ -683,28 +787,14 @@ export class UIManager {
 
           <p style="font-size:0.9rem; color:var(--text-ivory); margin:8px 0">${w.tagline}</p>
           <div style="margin:8px 0">${levelsHtml}</div>
-
-          ${
-            cat && evo
-              ? `<div class="evo-recipe-box">
-                  <span><img class="mini-icon-inline" src="${getWeaponIconUrl(w.id)}" alt="" /> <strong>${w.name} (Nv.5)</strong></span>
-                  <span>+</span>
-                  <span><img class="mini-icon-inline" src="${getRelicIconUrl(cat.id)}" alt="" /> <strong>${cat.name}</strong></span>
-                  <span>➔</span>
-                  <span><img class="mini-icon-inline" src="${getWeaponIconUrl(evo.id)}" alt="" /> <strong style="color:#ffe79e">★ ${evo.name}</strong></span>
-                </div>`
-              : fromBase && fromCat
-                ? `<div class="evo-recipe-box">
-                    <span>Desperta ao unir <img class="mini-icon-inline" src="${getWeaponIconUrl(fromBase.id)}" alt="" /> <strong>${fromBase.name} (Nv.5)</strong> + <img class="mini-icon-inline" src="${getRelicIconUrl(fromCat.id)}" alt="" /> <strong>${fromCat.name}</strong> em um Relicário Dourado.</span>
-                  </div>`
-                : ''
-          }
+          ${chainHtml}
         </div>
       `;
     } else {
       const r = RELICS[this.inspectedPower.id];
       const synW = WEAPONS[r.synergyWeapon];
       const evo = synW.evolvesInto ? WEAPONS[synW.evolvesInto] : null;
+      const ult = evo?.ultimateInto ? WEAPONS[evo.ultimateInto] : null;
       inspector.innerHTML = `
         <div>
           <div style="display:flex; align-items:center; gap:14px; margin-bottom:10px">
@@ -721,11 +811,13 @@ export class UIManager {
           <p style="font-size:0.92rem; color:var(--text-ivory); margin:12px 0">${r.bonusPerLevel}</p>
 
           ${
-            evo
+            evo && ult
               ? `<div class="evo-recipe-box">
-                  <span>Catalisa <img class="mini-icon-inline" src="${getWeaponIconUrl(synW.id)}" alt="" /> <strong>${synW.name} (Nv.5)</strong></span>
+                  <span>Catalisa <img class="mini-icon-inline" src="${getWeaponIconUrl(synW.id)}" alt="" /> <strong>${synW.name}</strong></span>
                   <span>➔</span>
                   <span><img class="mini-icon-inline" src="${getWeaponIconUrl(evo.id)}" alt="" /> <strong style="color:#ffe79e">★ ${evo.name}</strong></span>
+                  <span>➔</span>
+                  <span><img class="mini-icon-inline" src="${getWeaponIconUrl(ult.id)}" alt="" /> <strong style="color:#ffd166">👑 ${ult.name}</strong></span>
                 </div>`
               : ''
           }
@@ -814,7 +906,7 @@ export class UIManager {
   private beginArenaRun(): void {
     this.transitionWithCurtain(() => {
       this.mountHudDom();
-      this.onStartRun(this.selectedHero, this.selectedStage, {
+      this.onStartRun(this.selectedHero, this.selectedStage, this.selectedDifficulty, {
         onHudUpdate: (snap) => this.updateHud(snap),
         onLevelUpChoices: (choices, onPick) => this.showLevelUpModal(choices, onPick),
         onRelicChestOpen: (reward, onClose) => this.showRelicChestModal(reward, onClose),
@@ -1039,7 +1131,7 @@ export class UIManager {
       this.clockTimeEl.textContent = `${formatClock(snap.elapsedSeconds)} / 40:00`;
     }
     if (this.clockPhaseEl) {
-      this.clockPhaseEl.textContent = `Fase ${snap.stageRoman} · ${snap.actName}`;
+      this.clockPhaseEl.textContent = `Fase ${snap.stageRoman} · ${snap.actName} · ${snap.difficultyLabel}`;
     }
     if (this.killsEl) this.killsEl.textContent = `${snap.kills}`;
     if (this.soulsEl) this.soulsEl.textContent = `${snap.souls}`;
@@ -1067,15 +1159,28 @@ export class UIManager {
         if (entry) {
           const [wId, lv] = entry;
           const def = WEAPONS[wId];
+          const baseCat = def.evolvesFrom ? WEAPONS[def.evolvesFrom].catalystRelic : def.catalystRelic;
           const readyEvo =
-            !def.isEvolved &&
+            !def.isUltimate &&
             lv >= def.maxLevel &&
-            Boolean(def.catalystRelic && (snap.inventory.relics[def.catalystRelic] ?? 0) > 0);
-          const stateCls = def.isEvolved ? 'evolved' : readyEvo ? 'ready-evolve' : '';
+            Boolean(baseCat && (snap.inventory.relics[baseCat] ?? 0) >= (def.isEvolved ? 2 : 1));
+          const stateCls = def.isUltimate
+            ? 'ultimate'
+            : def.isEvolved
+              ? readyEvo
+                ? 'evolved ready-evolve'
+                : 'evolved'
+              : readyEvo
+                ? 'ready-evolve'
+                : '';
           html += `
             <div class="item-slot ${stateCls}" title="${def.name}">
               <img class="slot-icon-img" src="${getWeaponIconUrl(wId)}" alt="${def.name}" />
-              ${def.isEvolved ? '<span class="slot-evo-badge">★</span>' : renderLevelPips(lv, def.maxLevel)}
+              ${
+                def.isUltimate
+                  ? '<span class="slot-evo-badge ultimate">👑</span>'
+                  : `${def.isEvolved ? '<span class="slot-evo-badge">★</span>' : ''}${renderLevelPips(lv, def.maxLevel)}`
+              }
             </div>
           `;
         } else {
@@ -1167,12 +1272,13 @@ export class UIManager {
     choices.forEach((c, idx) => {
       const card = document.createElement('button');
       card.type = 'button';
-      card.className = 'upgrade-card';
+      card.className = `upgrade-card ${c.kind === 'ultimate' ? 'ultimate-card' : ''}`;
       card.dataset.testid = `upgrade-option-${idx}`;
 
+      const tileTierCls = c.kind === 'ultimate' ? 'ultimate-tile' : c.kind === 'evolution' ? 'evolved-tile' : '';
       card.innerHTML = `
         <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px">
-          <div class="power-icon-tile" style="width:46px; height:46px; margin:0; flex-shrink:0; pointer-events:none">
+          <div class="power-icon-tile ${tileTierCls}" style="width:46px; height:46px; margin:0; flex-shrink:0; pointer-events:none">
             <img class="power-icon-img" src="${c.iconUrl}" alt="${c.title}" />
           </div>
           <div>
@@ -1211,7 +1317,7 @@ export class UIManager {
         <h2 class="modal-title">Relicário Dourado Aberto</h2>
         <p class="modal-subtitle">${reward.subtitle}</p>
         <div class="upgrade-card" style="cursor:default; margin-bottom:14px; text-align:center">
-          <div class="power-icon-tile ${reward.kind === 'evolution' ? 'evolved-tile' : ''} selected" style="width:78px; height:78px; margin:0 auto 10px; pointer-events:none">
+          <div class="power-icon-tile ${reward.kind === 'ultimate' ? 'ultimate-tile' : reward.kind === 'evolution' ? 'evolved-tile' : ''} selected" style="width:78px; height:78px; margin:0 auto 10px; pointer-events:none">
             <img class="power-icon-img" src="${reward.iconUrl}" alt="${reward.title}" />
           </div>
           <h3 class="upgrade-name" style="font-size:1.2rem">${reward.title}</h3>
@@ -1285,7 +1391,7 @@ export class UIManager {
         <h2 class="modal-title" style="color:${summary.victory ? '#ffe79e' : '#ff4d6d'}">
           ${summary.victory ? `FASE ${currentStage.roman} PURIFICADA!` : 'CONSUMIDO PELO ECLIPSE'}
         </h2>
-        <p class="modal-subtitle">${hero.name} · ${currentStage.name}</p>
+        <p class="modal-subtitle">${hero.name} · ${currentStage.name} · ${DIFFICULTIES[summary.difficultyId].label}</p>
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:16px; text-align:left">
           <div class="stat-pill">Tempo: <strong>${formatClock(summary.elapsedSeconds)} / 40:00</strong></div>

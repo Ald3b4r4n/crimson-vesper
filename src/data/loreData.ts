@@ -1,5 +1,88 @@
 export type HeroId = 'alaric' | 'seraphina' | 'kaelen' | 'valeria';
 
+export type DifficultyId = 'normal' | 'hard' | 'epic' | 'holi_shit';
+
+export interface DifficultyDefinition {
+  id: DifficultyId;
+  label: string;
+  subtitle: string;
+  color: string;
+  hpMult: number;
+  dmgMult: number;
+  spdMult: number;
+  hordeMult: number;
+  spawnRateMult: number;
+  xpMult: number;
+  soulMult: number;
+  chaliceDropChance: number;
+  eliteChance: number;
+}
+
+export const DIFFICULTY_ORDER: DifficultyId[] = ['normal', 'hard', 'epic', 'holi_shit'];
+
+export const DIFFICULTIES: Record<DifficultyId, DifficultyDefinition> = {
+  normal: {
+    id: 'normal',
+    label: 'Normal',
+    subtitle: 'Vigília Clássica',
+    color: '#7be0ad',
+    hpMult: 1.0,
+    dmgMult: 1.0,
+    spdMult: 1.0,
+    hordeMult: 1.0,
+    spawnRateMult: 1.0,
+    xpMult: 1.0,
+    soulMult: 1.0,
+    chaliceDropChance: 0.07,
+    eliteChance: 0.04,
+  },
+  hard: {
+    id: 'hard',
+    label: 'Hard',
+    subtitle: 'Penitência de Sangue',
+    color: '#ffd166',
+    hpMult: 1.45,
+    dmgMult: 1.35,
+    spdMult: 1.12,
+    hordeMult: 1.35,
+    spawnRateMult: 1.3,
+    xpMult: 1.25,
+    soulMult: 1.35,
+    chaliceDropChance: 0.05,
+    eliteChance: 0.09,
+  },
+  epic: {
+    id: 'epic',
+    label: 'Epic',
+    subtitle: 'Eclipse Implacável',
+    color: '#c77dff',
+    hpMult: 2.1,
+    dmgMult: 1.75,
+    spdMult: 1.24,
+    hordeMult: 1.75,
+    spawnRateMult: 1.65,
+    xpMult: 1.55,
+    soulMult: 1.8,
+    chaliceDropChance: 0.035,
+    eliteChance: 0.15,
+  },
+  holi_shit: {
+    id: 'holi_shit',
+    label: 'HOLI SHIT!',
+    subtitle: 'Pesadelo Abissal Total',
+    color: '#ff2a55',
+    hpMult: 3.2,
+    dmgMult: 2.3,
+    spdMult: 1.38,
+    hordeMult: 2.35,
+    spawnRateMult: 2.2,
+    xpMult: 2.1,
+    soulMult: 2.5,
+    chaliceDropChance: 0.02,
+    eliteChance: 0.25,
+  },
+};
+
 export type StageId =
   | 'forest'
   | 'castle'
@@ -31,7 +114,18 @@ export type EvolvedWeaponId =
   | 'purifying_tide'
   | 'celestial_blade';
 
-export type WeaponId = BaseWeaponId | EvolvedWeaponId;
+export type UltimateWeaponId =
+  | 'abyssal_leviathan'
+  | 'supernova_staff'
+  | 'seraphim_choir'
+  | 'doomsday_guillotine'
+  | 'crimson_eclipse_aura'
+  | 'wrath_of_solaris'
+  | 'phantom_storm'
+  | 'gehenna_inferno'
+  | 'excalibur_zenith';
+
+export type WeaponId = BaseWeaponId | EvolvedWeaponId | UltimateWeaponId;
 
 export type RelicId =
   | 'black_heart'
@@ -58,6 +152,13 @@ export type EnemyKind =
   | 'fallen_seraph'
   | 'hollow_knight'
   | 'hell_fiend'
+  | 'werewolf'
+  | 'necromancer'
+  | 'gargoyle'
+  | 'bone_crawler'
+  | 'ash_wraith'
+  | 'inquisitor'
+  | 'abyssal_worm'
   // 7 Stage Bosses
   | 'boss_fenrir'
   | 'boss_carmilla'
@@ -101,9 +202,12 @@ export interface WeaponDefinition {
   name: string;
   category: string;
   isEvolved?: boolean;
+  isUltimate?: boolean;
   evolvesFrom?: BaseWeaponId;
   catalystRelic?: RelicId;
   evolvesInto?: EvolvedWeaponId;
+  ultimateOf?: EvolvedWeaponId;
+  ultimateInto?: UltimateWeaponId;
   maxLevel: number;
   iconColor: string;
   glyph: string;
@@ -304,7 +408,7 @@ export const STAGES: StageDefinition[] = [
       emberTint: 0x7effb2,
     },
     propStyle: 'forest',
-    enemyPool: ['bat', 'flagellant', 'dryad', 'mist_steed'],
+    enemyPool: ['bat', 'flagellant', 'dryad', 'werewolf', 'bone_crawler', 'necromancer', 'mist_steed'],
     midBoss: 'boss_fenrir',
     finalBoss: 'boss_fenrir',
   },
@@ -331,7 +435,7 @@ export const STAGES: StageDefinition[] = [
       emberTint: 0xc792ff,
     },
     propStyle: 'castle',
-    enemyPool: ['bat', 'banshee', 'hollow_knight', 'fallen_seraph'],
+    enemyPool: ['bat', 'banshee', 'gargoyle', 'necromancer', 'hollow_knight', 'fallen_seraph'],
     midBoss: 'boss_carmilla',
     finalBoss: 'boss_carmilla',
   },
@@ -358,7 +462,7 @@ export const STAGES: StageDefinition[] = [
       emberTint: 0x62ff9c,
     },
     propStyle: 'dungeon',
-    enemyPool: ['skeleton', 'jailer', 'flagellant', 'plague_doctor'],
+    enemyPool: ['skeleton', 'bone_crawler', 'jailer', 'necromancer', 'inquisitor', 'plague_doctor'],
     midBoss: 'boss_morghul',
     finalBoss: 'boss_morghul',
   },
@@ -385,7 +489,7 @@ export const STAGES: StageDefinition[] = [
       emberTint: 0xff7b29,
     },
     propStyle: 'volcano',
-    enemyPool: ['magma_imp', 'lava_golem', 'skeleton', 'mist_steed'],
+    enemyPool: ['magma_imp', 'ash_wraith', 'lava_golem', 'abyssal_worm', 'skeleton', 'mist_steed'],
     midBoss: 'boss_ignis',
     finalBoss: 'boss_ignis',
   },
@@ -412,7 +516,7 @@ export const STAGES: StageDefinition[] = [
       emberTint: 0xffad66,
     },
     propStyle: 'metropolis',
-    enemyPool: ['flagellant', 'plague_doctor', 'hollow_knight', 'mist_steed'],
+    enemyPool: ['flagellant', 'plague_doctor', 'inquisitor', 'gargoyle', 'ash_wraith', 'hollow_knight', 'werewolf'],
     midBoss: 'boss_vane',
     finalBoss: 'boss_vane',
   },
@@ -439,7 +543,7 @@ export const STAGES: StageDefinition[] = [
       emberTint: 0xff5c8a,
     },
     propStyle: 'temple',
-    enemyPool: ['fallen_seraph', 'hollow_knight', 'banshee', 'jailer'],
+    enemyPool: ['fallen_seraph', 'inquisitor', 'gargoyle', 'hollow_knight', 'necromancer', 'banshee', 'jailer'],
     midBoss: 'boss_malakor',
     finalBoss: 'boss_malakor',
   },
@@ -466,7 +570,7 @@ export const STAGES: StageDefinition[] = [
       emberTint: 0xff2a55,
     },
     propStyle: 'inferno',
-    enemyPool: ['hell_fiend', 'lava_golem', 'fallen_seraph', 'hollow_knight'],
+    enemyPool: ['hell_fiend', 'abyssal_worm', 'ash_wraith', 'lava_golem', 'fallen_seraph', 'hollow_knight', 'werewolf'],
     midBoss: 'boss_malakor',
     finalBoss: 'boss_reaper',
   },
@@ -646,19 +750,24 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     ],
   },
 
-  // 9 EVOLVED WEAPONS
+  // 9 EVOLVED WEAPONS (Max Grau 3 -> Evoluem para Forma Ultimate!)
   blood_rose: {
     id: 'blood_rose',
     name: 'Rosa Sangrenta',
     category: 'Evolução Ancestral',
     isEvolved: true,
     evolvesFrom: 'whip',
-    maxLevel: 1,
+    ultimateInto: 'abyssal_leviathan',
+    maxLevel: 3,
     iconColor: '#ff2a55',
     glyph: '🌹',
     tagline: 'Cortes cruzados carmesins que causam crítico garantido e drenam vida.',
     mechanicSummary: 'Cura o herói a cada golpe desferido contra a horda.',
-    descriptions: ['Cortes imperiais carmesins que curam o herói a cada massacre.'],
+    descriptions: [
+      'Cortes imperiais carmesins que curam o herói a cada massacre.',
+      '+35% de alcance e ondas de choque sangrentas horizontais.',
+      'Desperta cortes duplos vampíricos prontos para a Forma Ultimate.',
+    ],
   },
   star_torrent: {
     id: 'star_torrent',
@@ -666,12 +775,17 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     category: 'Evolução Ancestral',
     isEvolved: true,
     evolvesFrom: 'wand',
-    maxLevel: 1,
+    ultimateInto: 'supernova_staff',
+    maxLevel: 3,
     iconColor: '#9ef0ff',
     glyph: '☄',
     tagline: 'Fluxo ininterrupto de cometas astrais teleguiados sem pausa.',
     mechanicSummary: 'Metralhadora arcana automática que perfura alvos.',
-    descriptions: ['Dispara cometas astrais perfurantes em cadência ininterrupta.'],
+    descriptions: [
+      'Dispara cometas astrais perfurantes em cadência ininterrupta.',
+      '+1 cometa por salva e perfuração +2 alvos.',
+      'Cadência hiperacelerada pronta para a Forma Ultimate.',
+    ],
   },
   immortal_vesper: {
     id: 'immortal_vesper',
@@ -679,12 +793,17 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     category: 'Evolução Ancestral',
     isEvolved: true,
     evolvesFrom: 'bible',
-    maxLevel: 1,
+    ultimateInto: 'seraphim_choir',
+    maxLevel: 3,
     iconColor: '#ffd966',
     glyph: '☀',
     tagline: 'Anel perpétuo de 6 escrituras solares que jamais se apaga.',
     mechanicSummary: 'Barreira giratória permanente ao redor do herói.',
-    descriptions: ['Seis grimórios solares giram eternamente em velocidade letal.'],
+    descriptions: [
+      'Seis grimórios solares giram eternamente em velocidade letal.',
+      '+15% de velocidade angular e repulsão contra elites.',
+      'Ressonância dourada máxima pronta para a Forma Ultimate.',
+    ],
   },
   eclipse_scythe: {
     id: 'eclipse_scythe',
@@ -692,12 +811,17 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     category: 'Evolução Ancestral',
     isEvolved: true,
     evolvesFrom: 'axe',
-    maxLevel: 1,
+    ultimateInto: 'doomsday_guillotine',
+    maxLevel: 3,
     iconColor: '#d08bff',
     glyph: '🌙',
     tagline: 'Foices espectrais voam em espiral 360° atravessando toda a tela.',
     mechanicSummary: 'Dispara foices gigantes perfurantes em todas as direções.',
-    descriptions: ['Ceifa tudo ao redor com foices lunares perfurantes infinitas.'],
+    descriptions: [
+      'Ceifa tudo ao redor com foices lunares perfurantes infinitas.',
+      '+2 foices por espiral e +30% de tamanho de lâmina.',
+      'Lâminas lunares críticas prontas para a Forma Ultimate.',
+    ],
   },
   devouring_shroud: {
     id: 'devouring_shroud',
@@ -705,12 +829,17 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     category: 'Evolução Ancestral',
     isEvolved: true,
     evolvesFrom: 'thurible',
-    maxLevel: 1,
+    ultimateInto: 'crimson_eclipse_aura',
+    maxLevel: 3,
     iconColor: '#ff477e',
     glyph: '◉',
     tagline: 'Vórtice carmesim gigante que drena a alma da horda e regenera vida.',
     mechanicSummary: 'Aura colossal com roubo de vitalidade contínuo.',
-    descriptions: ['Campo abissal gigante que dissolve inimigos e restaura vitalidade.'],
+    descriptions: [
+      'Campo abissal gigante que dissolve inimigos e restaura vitalidade.',
+      '+22% de raio de aura e pulsos mais frequentes.',
+      'Vórtice sombrio máximo pronto para a Forma Ultimate.',
+    ],
   },
   seven_judgment: {
     id: 'seven_judgment',
@@ -718,51 +847,190 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     category: 'Evolução Ancestral',
     isEvolved: true,
     evolvesFrom: 'lightning',
-    maxLevel: 1,
+    ultimateInto: 'wrath_of_solaris',
+    maxLevel: 3,
     iconColor: '#ff9e44',
     glyph: '🌩',
     tagline: 'Tempestade dupla de relâmpagos solares com ondas explosivas.',
     mechanicSummary: 'Bombardeio elétrico massivo em toda a visão.',
-    descriptions: ['Fúria celestial encadeada sobre os servos do Eclipse.'],
+    descriptions: [
+      'Fúria celestial encadeada sobre os servos do Eclipse.',
+      '+2 relâmpagos por tempestade e ondas de choque ampliadas.',
+      'Sobrecarga solar pronta para a Forma Ultimate.',
+    ],
   },
   thousand_fangs: {
     id: 'thousand_fangs',
     name: 'Mil Presas de Prata',
-    category: 'Evolução Ancestral [NOVO]',
+    category: 'Evolução Ancestral',
     isEvolved: true,
     evolvesFrom: 'daggers',
-    maxLevel: 1,
+    ultimateInto: 'phantom_storm',
+    maxLevel: 3,
     iconColor: '#ffffff',
     glyph: '⚔',
     tagline: 'Rajada hipersônica contínua de adagas espectrais críticas.',
     mechanicSummary: 'Disparo contínuo de punhais perfurantes na sua direção.',
-    descriptions: ['Chuva ininterrupta de punhais lunares que rasgam qualquer armadura.'],
+    descriptions: [
+      'Chuva ininterrupta de punhais lunares que rasgam qualquer armadura.',
+      '+2 adagas por rajada e perfuração ampliada.',
+      'Velocidade hipersônica pronta para a Forma Ultimate.',
+    ],
   },
   purifying_tide: {
     id: 'purifying_tide',
     name: 'Maré Purificadora',
-    category: 'Evolução Ancestral [NOVO]',
+    category: 'Evolução Ancestral',
     isEvolved: true,
     evolvesFrom: 'flask',
-    maxLevel: 1,
+    ultimateInto: 'gehenna_inferno',
+    maxLevel: 3,
     iconColor: '#00f5d4',
     glyph: '🔥',
     tagline: 'Vórtices colossais de fogo astral azul que incineram o mapa.',
-    mechanicSummary: 'Cria grandes santuários de fogo azul de altíssimo dano.',
-    descriptions: ['Chamas sagradas gigantescas que purificam tudo em seu raio.'],
+    mechanicSummary: 'Cria grandes santuários de fogo azul com física viva.',
+    descriptions: [
+      'Chamas sagradas gigantescas que purificam tudo em seu raio.',
+      '+25% de área de combustão e chamas seguem mais rápido.',
+      'Tormenta ígnea máxima pronta para a Forma Ultimate.',
+    ],
   },
   celestial_blade: {
     id: 'celestial_blade',
     name: 'Espada Celestial',
-    category: 'Evolução Ancestral [NOVO]',
+    category: 'Evolução Ancestral',
     isEvolved: true,
     evolvesFrom: 'cross',
-    maxLevel: 1,
+    ultimateInto: 'excalibur_zenith',
+    maxLevel: 3,
     iconColor: '#fff3b0',
     glyph: '⚜',
     tagline: 'Gládios solares colossais que cortam o horizonte em bumerangue crítico.',
     mechanicSummary: 'Espadas luminosas gigantes com dano crítico dobrado.',
-    descriptions: ['Lâminas divinas retornam cortando exércitos inteiros ao meio.'],
+    descriptions: [
+      'Lâminas divinas retornam cortando exércitos inteiros ao meio.',
+      '+1 gládio solar e maior alcance de retorno.',
+      'Resplendor máximo pronto para a Forma Ultimate.',
+    ],
+  },
+
+  // 9 ULTIMATE WEAPONS (Ápice Supremo das Armas!)
+  abyssal_leviathan: {
+    id: 'abyssal_leviathan',
+    name: 'Leviatã Abissal',
+    category: 'Evolução Ultimate 👑',
+    isUltimate: true,
+    ultimateOf: 'blood_rose',
+    maxLevel: 1,
+    iconColor: '#ff1744',
+    glyph: '👑',
+    tagline: 'Dilacera toda a largura da tela em arcos cruzados escarlates com explosão sangrenta.',
+    mechanicSummary: 'Cortes quádruplos gigantes de açoite sombrio que executam e curam.',
+    descriptions: ['Ultimate: 4 cortes transversais titânicos com explosão crítica e drenagem de alma.'],
+  },
+  supernova_staff: {
+    id: 'supernova_staff',
+    name: 'Cajado Supernova',
+    category: 'Evolução Ultimate 👑',
+    isUltimate: true,
+    ultimateOf: 'star_torrent',
+    maxLevel: 1,
+    iconColor: '#00e5ff',
+    glyph: '👑',
+    tagline: 'Dispara raios estelares triplos contínuos que explodem em supernovas ao impactar.',
+    mechanicSummary: 'Rajada constante de estrelas binárias que detonam em área.',
+    descriptions: ['Ultimate: cometas tridimensionais contínuos que detonam em supernovas astrais.'],
+  },
+  seraphim_choir: {
+    id: 'seraphim_choir',
+    name: 'Coro dos Serafins',
+    category: 'Evolução Ultimate 👑',
+    isUltimate: true,
+    ultimateOf: 'immortal_vesper',
+    maxLevel: 1,
+    iconColor: '#ffe066',
+    glyph: '👑',
+    tagline: 'Duas coroas concêntricas de 10 escrituras angelicais que incineram quem se aproxima.',
+    mechanicSummary: 'Anel duplo eterno de 10 tomos solares impenetrável.',
+    descriptions: ['Ultimate: duas órbitas contra-rotatórias de 10 tomos sagrados em velocidade extrema.'],
+  },
+  doomsday_guillotine: {
+    id: 'doomsday_guillotine',
+    name: 'Guilhotina do Juízo',
+    category: 'Evolução Ultimate 👑',
+    isUltimate: true,
+    ultimateOf: 'eclipse_scythe',
+    maxLevel: 1,
+    iconColor: '#e08aff',
+    glyph: '👑',
+    tagline: 'Libera uma tempestade espiral de foices colossais que cortam o mapa em duas ondas.',
+    mechanicSummary: 'Salva 360° massiva de guilhotinas lunares com crítico devastador.',
+    descriptions: ['Ultimate: anel duplo de guilhotinas lunares gigantes com perfuração ilimitada.'],
+  },
+  crimson_eclipse_aura: {
+    id: 'crimson_eclipse_aura',
+    name: 'Eclipse Carmesim Vivo',
+    category: 'Evolução Ultimate 👑',
+    isUltimate: true,
+    ultimateOf: 'devouring_shroud',
+    maxLevel: 1,
+    iconColor: '#ff2a55',
+    glyph: '👑',
+    tagline: 'Domínio solar invertido colossal que desacelera, incinera e drena hordas inteiras.',
+    mechanicSummary: 'Aura massiva com combustão física contínua e drenagem vital.',
+    descriptions: ['Ultimate: domínio colossal do Eclipse que consome hordas em fogo e sangue.'],
+  },
+  wrath_of_solaris: {
+    id: 'wrath_of_solaris',
+    name: 'Ira de Solaris',
+    category: 'Evolução Ultimate 👑',
+    isUltimate: true,
+    ultimateOf: 'seven_judgment',
+    maxLevel: 1,
+    iconColor: '#ffb703',
+    glyph: '👑',
+    tagline: 'Julgamento celestial ininterrupto de colunas solares em cadeia sobre dezenas de alvos.',
+    mechanicSummary: 'Bombardeio constante de pilares de trovão e plasma.',
+    descriptions: ['Ultimate: colunas solares múltiplas vaporizam alvos com ondas sísmicas críticas.'],
+  },
+  phantom_storm: {
+    id: 'phantom_storm',
+    name: 'Tempestade Espectral',
+    category: 'Evolução Ultimate 👑',
+    isUltimate: true,
+    ultimateOf: 'thousand_fangs',
+    maxLevel: 1,
+    iconColor: '#e0fbff',
+    glyph: '👑',
+    tagline: 'Muralha supersônica de lâminas prateadas para frente e em leque duplo lateral.',
+    mechanicSummary: 'Dilúvio constante de adagas fantasmas de alto impacto crítico.',
+    descriptions: ['Ultimate: torrente de 7 adagas fantasmas por disparo que atravessam exércitos.'],
+  },
+  gehenna_inferno: {
+    id: 'gehenna_inferno',
+    name: 'Inferno de Gehenna',
+    category: 'Evolução Ultimate 👑',
+    isUltimate: true,
+    ultimateOf: 'purifying_tide',
+    maxLevel: 1,
+    iconColor: '#ff6d00',
+    glyph: '👑',
+    tagline: 'Vórtices infernais vivos que perseguem o enxame cuspindo labaredas físicas contínuas.',
+    mechanicSummary: 'Tormentas de fogo físico persistentes que incendeiam todo o campo.',
+    descriptions: ['Ultimate: tempestades de fogo abissal ativo com chamas físicas em propagação.'],
+  },
+  excalibur_zenith: {
+    id: 'excalibur_zenith',
+    name: 'Excalibur do Zênite',
+    category: 'Evolução Ultimate 👑',
+    isUltimate: true,
+    ultimateOf: 'celestial_blade',
+    maxLevel: 1,
+    iconColor: '#fff59d',
+    glyph: '👑',
+    tagline: 'Lâminas sagradas titânicas cruzam a tela em constelação solar aniquiladora.',
+    mechanicSummary: 'Constelação giratória de 5 espadas solares de crítico garantido.',
+    descriptions: ['Ultimate: constelação de gládios solares colossais com retorno fulminante.'],
   },
 };
 
@@ -1015,6 +1283,91 @@ export const ENEMIES: Record<EnemyKind, EnemyDefinition> = {
     gemTier: 'ruby',
     scale: 1.24,
     knockbackResist: 0.68,
+  },
+  // 7 NEW ENEMY SPECIES (20 Regular Total!)
+  werewolf: {
+    kind: 'werewolf',
+    name: 'Fera Licantropa',
+    hp: 112,
+    damage: 20,
+    speed: 124,
+    radius: 18,
+    xpValue: 16,
+    gemTier: 'amber',
+    scale: 1.18,
+    knockbackResist: 0.42,
+  },
+  necromancer: {
+    kind: 'necromancer',
+    name: 'Necromante das Cinzas',
+    hp: 92,
+    damage: 18,
+    speed: 74,
+    radius: 16,
+    xpValue: 18,
+    gemTier: 'amber',
+    scale: 1.12,
+    knockbackResist: 0.35,
+  },
+  gargoyle: {
+    kind: 'gargoyle',
+    name: 'Gárgula de Obsidiana',
+    hp: 126,
+    damage: 21,
+    speed: 108,
+    radius: 17,
+    xpValue: 19,
+    gemTier: 'amber',
+    scale: 1.15,
+    knockbackResist: 0.55,
+  },
+  bone_crawler: {
+    kind: 'bone_crawler',
+    name: 'Aracnídeo de Ossos',
+    hp: 48,
+    damage: 15,
+    speed: 132,
+    radius: 15,
+    xpValue: 9,
+    gemTier: 'sapphire',
+    scale: 1.08,
+    knockbackResist: 0.18,
+  },
+  ash_wraith: {
+    kind: 'ash_wraith',
+    name: 'Espectro da Fornalha',
+    hp: 105,
+    damage: 22,
+    speed: 114,
+    radius: 16,
+    xpValue: 17,
+    gemTier: 'ruby',
+    scale: 1.14,
+    knockbackResist: 0.25,
+  },
+  inquisitor: {
+    kind: 'inquisitor',
+    name: 'Alto Inquisidor',
+    hp: 210,
+    damage: 26,
+    speed: 72,
+    radius: 20,
+    xpValue: 26,
+    gemTier: 'ruby',
+    scale: 1.24,
+    knockbackResist: 0.75,
+  },
+  abyssal_worm: {
+    kind: 'abyssal_worm',
+    name: 'Verme Abissal',
+    hp: 165,
+    damage: 25,
+    speed: 118,
+    radius: 19,
+    xpValue: 25,
+    gemTier: 'ruby',
+    scale: 1.22,
+    knockbackResist: 0.58,
   },
 
   // 7 STAGE BOSSES

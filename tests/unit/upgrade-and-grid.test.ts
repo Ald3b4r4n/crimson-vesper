@@ -1,8 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { getRelicIconUrl, getWeaponIconUrl, STAGES, WEAPONS } from '../../src/data/loreData';
+import {
+  DIFFICULTIES,
+  DIFFICULTY_ORDER,
+  ENEMIES,
+  getRelicIconUrl,
+  getWeaponIconUrl,
+  STAGES,
+  WEAPONS,
+} from '../../src/data/loreData';
 import { SpatialGrid } from '../../src/game/SpatialGrid';
 import {
   ALL_BASE_WEAPONS,
+  ALL_EVOLVED_WEAPONS,
   ALL_RELICS,
   applyUpgradeChoice,
   buildUpgradeChoices,
@@ -10,12 +19,24 @@ import {
   createInitialInventory,
   getActiveSynergyPairs,
   getAvailableEvolutions,
+  getAvailableUltimates,
   MAX_WEAPON_SLOTS,
   resolveRelicChest,
 } from '../../src/game/UpgradeLogic';
 
-describe('Vespera — 40-Min Stages, Full 6-Slot Evolutions, 27 Custom Icons & Spatial Systems', () => {
-  it('defines all 7 stages in campaign order with 40-minute (2400s) duration', () => {
+describe('Vespera — Difficulties, Ultimates, 27 Enemies, 40-Min Stages & 36 Icons', () => {
+  it('defines all 4 difficulty modes (normal, hard, epic, holi_shit) with escalating threat and scarcer healing', () => {
+    expect(DIFFICULTY_ORDER).toEqual(['normal', 'hard', 'epic', 'holi_shit']);
+    expect(DIFFICULTIES.holi_shit.label).toBe('HOLI SHIT!');
+    expect(DIFFICULTIES.hard.hpMult).toBeGreaterThan(DIFFICULTIES.normal.hpMult);
+    expect(DIFFICULTIES.epic.hordeMult).toBeGreaterThan(DIFFICULTIES.hard.hordeMult);
+    expect(DIFFICULTIES.holi_shit.hordeMult).toBeGreaterThan(DIFFICULTIES.epic.hordeMult);
+    expect(DIFFICULTIES.holi_shit.chaliceDropChance).toBeLessThan(
+      DIFFICULTIES.normal.chaliceDropChance
+    );
+  });
+
+  it('defines all 7 stages (2400s), expanded enemy pools, and 27 distinct enemies', () => {
     expect(STAGES).toHaveLength(7);
     expect(STAGES.map((s) => s.id)).toEqual([
       'forest',
@@ -28,12 +49,16 @@ describe('Vespera — 40-Min Stages, Full 6-Slot Evolutions, 27 Custom Icons & S
     ]);
     for (const stage of STAGES) {
       expect(stage.durationSeconds).toBe(2400);
+      expect(stage.enemyPool.length).toBeGreaterThanOrEqual(6);
     }
+    expect(Object.keys(ENEMIES)).toHaveLength(27);
   });
 
-  it('registers all 9 base weapons, 9 evolved weapons, and 9 passive relics with custom .webp icons', () => {
+  it('registers 9 base, 9 evolved, 9 Ultimate weapons, and 9 relics with custom .webp icons', () => {
     expect(ALL_BASE_WEAPONS).toHaveLength(9);
+    expect(ALL_EVOLVED_WEAPONS).toHaveLength(9);
     expect(ALL_RELICS).toHaveLength(9);
+    expect(Object.keys(WEAPONS)).toHaveLength(27);
     for (const wId of Object.keys(WEAPONS) as Array<keyof typeof WEAPONS>) {
       expect(getWeaponIconUrl(wId)).toBe(`./art/icons/${wId}.webp`);
     }
@@ -49,7 +74,7 @@ describe('Vespera — 40-Min Stages, Full 6-Slot Evolutions, 27 Custom Icons & S
     expect(createInitialInventory('valeria').weapons.cross).toBe(1);
   });
 
-  it('unlocks weapon evolutions and guarantees all 6 weapon slots can evolve in a single run', () => {
+  it('unlocks weapon evolutions -> Ultimate awakening and guarantees 6-slot full evolution', () => {
     const inv = createInitialInventory('valeria');
     inv.weapons.cross = 5;
     inv.relics.ash_clover = 1;
@@ -65,7 +90,20 @@ describe('Vespera — 40-Min Stages, Full 6-Slot Evolutions, 27 Custom Icons & S
     expect(inv.weapons.cross).toBeUndefined();
     expect(inv.weapons.celestial_blade).toBe(1);
 
-    // Full 6-slot evolution simulation with pseudo-random player picks + 6 Champion Relic Chests
+    // Advance Evolved weapon to Grau 3 + Catalyst Relic to Nv.2 -> Excalibur Zenith Ultimate awakens!
+    inv.weapons.celestial_blade = 3;
+    inv.relics.ash_clover = 2;
+    expect(getAvailableUltimates(inv)).toEqual(['excalibur_zenith']);
+
+    const ultChest = resolveRelicChest(inv, () => 0);
+    expect(ultChest.kind).toBe('ultimate');
+    expect(ultChest.weaponId).toBe('excalibur_zenith');
+
+    applyUpgradeChoice(inv, ultChest);
+    expect(inv.weapons.celestial_blade).toBeUndefined();
+    expect(inv.weapons.excalibur_zenith).toBe(1);
+
+    // Full 6-slot build simulation with pseudo-random player picks + 6 Champion Relic Chests
     let seed = 42;
     const rng = () => {
       seed = (seed * 1664525 + 1013904223) % 4294967296;
@@ -76,13 +114,11 @@ describe('Vespera — 40-Min Stages, Full 6-Slot Evolutions, 27 Custom Icons & S
     for (let step = 0; step < 62; step++) {
       const choices = buildUpgradeChoices(runInv, 3, rng);
       expect(choices.length).toBe(3);
-      // Pick randomly among offered cards!
       const picked = choices[Math.floor(rng() * choices.length)];
       applyUpgradeChoice(runInv, picked);
       expect(getActiveSynergyPairs(runInv).size).toBeLessThanOrEqual(MAX_WEAPON_SLOTS);
     }
 
-    // Open 6 Champion Relic Chests -> all 6 weapon slots evolve into Ancestral Weapons!
     for (let c = 0; c < 6; c++) {
       const reward = resolveRelicChest(runInv, rng);
       applyUpgradeChoice(runInv, reward);
@@ -91,7 +127,7 @@ describe('Vespera — 40-Min Stages, Full 6-Slot Evolutions, 27 Custom Icons & S
     const equippedWeaponIds = Object.keys(runInv.weapons) as Array<keyof typeof WEAPONS>;
     expect(equippedWeaponIds).toHaveLength(6);
     for (const wId of equippedWeaponIds) {
-      expect(WEAPONS[wId].isEvolved).toBe(true);
+      expect(Boolean(WEAPONS[wId].isEvolved || WEAPONS[wId].isUltimate)).toBe(true);
     }
   });
 

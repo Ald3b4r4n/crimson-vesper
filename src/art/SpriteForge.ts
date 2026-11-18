@@ -40,6 +40,13 @@ const REGULAR_ENEMIES: EnemyKind[] = [
   'fallen_seraph',
   'hollow_knight',
   'hell_fiend',
+  'werewolf',
+  'necromancer',
+  'gargoyle',
+  'bone_crawler',
+  'ash_wraith',
+  'inquisitor',
+  'abyssal_worm',
 ];
 
 const BOSS_ENEMIES: EnemyKind[] = [
@@ -63,6 +70,10 @@ const STATIC_ENV_ASSETS = [
   'ruin_crumbled_wall',
   'ruin_broken_arch',
   'ruin_weathered_statue',
+  // Painted Gothic Forest Trees
+  'tree_ancient_oak',
+  'tree_weeping_willow',
+  'tree_pine_shadow',
   // Vegetation
   'veg_bramble_bush',
   'veg_twisted_shrub',
@@ -134,13 +145,21 @@ export function forgeStageTextures(scene: Phaser.Scene, stage: StageDefinition):
   > = {
     forest: {
       ruinKeys: [
+        'tree_ancient_oak',
+        'tree_weeping_willow',
+        'tree_pine_shadow',
+        'prop_dead_tree',
+        'tree_ancient_oak',
         'ruin_broken_arch',
         'ruin_weathered_statue',
-        'ruin_crumbled_wall',
-        'prop_dead_tree',
         'prop_iron_brazier',
       ],
-      vegKeys: ['veg_bramble_bush', 'veg_twisted_shrub', 'veg_bramble_bush'],
+      vegKeys: [
+        'veg_bramble_bush',
+        'veg_twisted_shrub',
+        'veg_fern_cluster',
+        'veg_glowing_mushrooms',
+      ],
       breakableKeys: ['break_candelabra', 'break_wooden_barrel', 'break_clay_urn'],
     },
     castle: {
@@ -243,6 +262,38 @@ export function forgeStageTextures(scene: Phaser.Scene, stage: StageDefinition):
     for (let i = 0; i < 110; i++) {
       const col = i % 2 === 0 ? stage.palette.groundAccent : stage.palette.groundDetail;
       drawSeamlessBlob(rand() * w, rand() * h, 28 + rand() * 58, col, 0.28);
+    }
+
+    if (stage.propStyle === 'forest') {
+      // Rich mossy forest floor with creeping roots, clover tufts, and fallen autumn/twilight leaves!
+      for (let i = 0; i < 36; i++) {
+        drawSeamlessBlob(rand() * w, rand() * h, 14 + rand() * 24, '#244721', 0.22);
+      }
+      ctx.strokeStyle = 'rgba(28, 22, 16, 0.34)';
+      ctx.lineWidth = 2.2;
+      for (let i = 0; i < 18; i++) {
+        const rx = rand() * w;
+        const ry = rand() * h;
+        ctx.beginPath();
+        ctx.moveTo(rx, ry);
+        ctx.quadraticCurveTo(rx + 22, ry + (rand() - 0.5) * 18, rx + 46, ry + (rand() - 0.5) * 26);
+        ctx.stroke();
+      }
+      for (let i = 0; i < 75; i++) {
+        ctx.save();
+        ctx.translate(rand() * w, rand() * h);
+        ctx.rotate(rand() * Math.PI * 2);
+        ctx.fillStyle =
+          i % 3 === 0
+            ? 'rgba(138, 86, 46, 0.42)'
+            : i % 3 === 1
+              ? 'rgba(72, 132, 74, 0.45)'
+              : 'rgba(165, 118, 62, 0.36)';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 3.6, 1.7, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
     }
 
     if (
@@ -354,18 +405,91 @@ export function forgeAllTexturesAndAnims(scene: Phaser.Scene): void {
     }
   }
 
-  // 8-frame Articulated Walk / Wing-Flap for all 13 Enemies!
+  // 8-frame Articulated Walk / Wing-Flap for all 20 Regular Enemies!
   for (const kind of REGULAR_ENEMIES) {
     const key = `enemy_${kind}`;
     if (scene.textures.exists(key) && !scene.anims.exists(`${key}_move`)) {
       scene.anims.create({
         key: `${key}_move`,
         frames: scene.anims.generateFrameNumbers(key, { start: 0, end: 7 }),
-        frameRate: kind === 'bat' || kind === 'mist_steed' || kind === 'magma_imp' ? 14 : 10,
+        frameRate:
+          kind === 'bat' ||
+          kind === 'mist_steed' ||
+          kind === 'magma_imp' ||
+          kind === 'gargoyle' ||
+          kind === 'ash_wraith' ||
+          kind === 'bone_crawler'
+            ? 14
+            : 10,
         repeat: -1,
       });
     }
   }
+
+  // Lush Painterly Gothic Flora Textures (Trees loaded from painted .webp assets above!)
+  registerSingle(scene, 'veg_fern_cluster', 78, 64, (ctx, w, h) => {
+    const cx = w * 0.5;
+    const cy = h * 0.84;
+    for (let i = -4; i <= 4; i++) {
+      const ang = i * 0.28 - Math.PI / 2;
+      const len = 26 + (4 - Math.abs(i)) * 3.5;
+      const tipX = cx + Math.cos(ang) * len;
+      const tipY = cy + Math.sin(ang) * len;
+      ctx.strokeStyle = i % 2 === 0 ? '#1d4c27' : '#2a6635';
+      ctx.lineWidth = 2.6;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.quadraticCurveTo((cx + tipX) * 0.5 + i * 2, cy - 16, tipX, tipY);
+      ctx.stroke();
+
+      // Feather leaflets along fern frond
+      for (let f = 0.25; f < 0.95; f += 0.18) {
+        const lx = cx + (tipX - cx) * f;
+        const ly = cy + (tipY - cy) * f;
+        ctx.fillStyle = f > 0.6 ? '#397d43' : '#23592d';
+        ctx.beginPath();
+        ctx.ellipse(lx, ly, 4.5 * (1 - f * 0.5), 2.2, ang + 0.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  });
+
+  registerSingle(scene, 'veg_glowing_mushrooms', 64, 54, (ctx, w, h) => {
+    // Moss bed base
+    const mgBase = ctx.createRadialGradient(w * 0.5, h * 0.78, 2, w * 0.5, h * 0.78, 24);
+    mgBase.addColorStop(0, '#1e3e26');
+    mgBase.addColorStop(1, 'rgba(12, 24, 16, 0)');
+    ctx.fillStyle = mgBase;
+    ctx.beginPath();
+    ctx.ellipse(w * 0.5, h * 0.78, 24, 10, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    const caps = [
+      { x: w * 0.36, y: h * 0.64, rx: 9, ry: 5.5, stemH: 13 },
+      { x: w * 0.54, y: h * 0.54, rx: 11, ry: 7, stemH: 17 },
+      { x: w * 0.67, y: h * 0.68, rx: 7.5, ry: 5, stemH: 11 },
+    ];
+    for (const c of caps) {
+      ctx.fillStyle = '#8b8378';
+      ctx.strokeStyle = '#181412';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(c.x - 2, c.y, 4, c.stemH, 2);
+      ctx.fill();
+      ctx.stroke();
+
+      const mg = ctx.createRadialGradient(c.x, c.y - 2, 1, c.x, c.y, c.rx + 2);
+      mg.addColorStop(0, '#96f2d7');
+      mg.addColorStop(0.55, '#2b9374');
+      mg.addColorStop(1, '#123e35');
+      ctx.fillStyle = mg;
+      ctx.beginPath();
+      ctx.ellipse(c.x, c.y, c.rx, c.ry, 0, Math.PI, Math.PI * 2);
+      ctx.quadraticCurveTo(c.x, c.y + 3, c.x - c.rx, c.y);
+      ctx.fill();
+    }
+  });
 
   // 8-frame Articulated Walk / Wing-Flap for all 7 Bosses!
   for (const kind of BOSS_ENEMIES) {
@@ -630,6 +754,44 @@ export function forgeAllTexturesAndAnims(scene: Phaser.Scene): void {
     const g = ctx.createRadialGradient(w / 2, h / 2, 8, w / 2, h / 2, w / 2);
     g.addColorStop(0, 'rgba(220, 225, 245, 0.16)');
     g.addColorStop(1, 'rgba(220, 225, 245, 0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+  });
+
+  // Live Physics Flame & Ember Textures (wispy sinuous flame tongue!)
+  registerSingle(scene, 'vfx_flame_tongue', 26, 48, (ctx, w, h) => {
+    const grad = ctx.createLinearGradient(0, h, 0, 2);
+    grad.addColorStop(0, '#ffffff');
+    grad.addColorStop(0.32, '#ffd166');
+    grad.addColorStop(0.68, 'rgba(255, 110, 35, 0.85)');
+    grad.addColorStop(1, 'rgba(255, 45, 15, 0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(w * 0.55, 2);
+    ctx.bezierCurveTo(w * 0.85, h * 0.35, w * 0.92, h * 0.82, w * 0.5, h - 3);
+    ctx.bezierCurveTo(w * 0.08, h * 0.82, w * 0.2, h * 0.38, w * 0.55, 2);
+    ctx.closePath();
+    ctx.fill();
+  });
+
+  registerSingle(scene, 'vfx_flame_core', 64, 64, (ctx, w) => {
+    const c = w / 2;
+    const g = ctx.createRadialGradient(c, c, 3, c, c, c - 2);
+    g.addColorStop(0, 'rgba(255, 255, 240, 0.92)');
+    g.addColorStop(0.38, 'rgba(255, 185, 75, 0.65)');
+    g.addColorStop(0.75, 'rgba(255, 85, 25, 0.25)');
+    g.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(c, c, c - 2, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  registerSingle(scene, 'vfx_ember_spark', 12, 12, (ctx, w, h) => {
+    const g = ctx.createRadialGradient(w / 2, h / 2, 0.5, w / 2, h / 2, w / 2);
+    g.addColorStop(0, '#ffffff');
+    g.addColorStop(0.5, '#ffbe55');
+    g.addColorStop(1, 'rgba(255, 75, 20, 0)');
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, w, h);
   });

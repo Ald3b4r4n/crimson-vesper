@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { HeroId, StageId } from './data/loreData';
+import { DifficultyId, HeroId, StageId } from './data/loreData';
 import { ArenaCallbacks, ArenaScene } from './scenes/ArenaScene';
 import './styles.css';
 import { UIManager } from './ui/UIManager';
@@ -41,10 +41,15 @@ function getActiveArena(): ArenaScene | null {
 }
 
 new UIManager(uiLayer, viewport, {
-  onStartRun: (heroId: HeroId, stageId: StageId, callbacks: ArenaCallbacks) => {
+  onStartRun: (
+    heroId: HeroId,
+    stageId: StageId,
+    difficultyId: DifficultyId,
+    callbacks: ArenaCallbacks
+  ) => {
     const sz = viewport.getWorldSize();
     game.scale.resize(sz.width, sz.height);
-    arenaScene.configureRun(heroId, stageId, callbacks);
+    arenaScene.configureRun(heroId, stageId, difficultyId, callbacks);
     if (game.scene.isActive('ArenaScene') || game.scene.isPaused('ArenaScene')) {
       game.scene.stop('ArenaScene');
     }
