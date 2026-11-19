@@ -16,10 +16,12 @@ import { SpatialGrid } from '../../src/game/SpatialGrid';
 import {
   ALL_BASE_WEAPONS,
   ALL_EVOLVED_WEAPONS,
+  ALL_EXCLUSIVE_WEAPONS,
   ALL_RELICS,
   applyUpgradeChoice,
   buildUpgradeChoices,
   computeEffectiveStats,
+  computeHeroWithUpgrades,
   computeIntraMatchEscalation,
   computePlayerPowerPressure,
   computeWeaponForgeBonus,
@@ -27,12 +29,17 @@ import {
   getActiveSynergyPairs,
   getAvailableEvolutions,
   getAvailableUltimates,
+  HERO_UPGRADE_GOLD_COSTS,
   isBaseWeaponUnlocked,
+  isExclusiveWeaponUnlocked,
   isRelicUnlocked,
+  MAX_HERO_UPGRADE_LEVEL,
   MAX_WEAPON_FORGE_LEVEL,
   MAX_WEAPON_SLOTS,
+  pickBalancedSpawnKind,
   resolveRelicChest,
   WEAPON_FORGE_COSTS,
+  WEAPON_FORGE_GOLD_COSTS,
 } from '../../src/game/UpgradeLogic';
 
 describe('Vespera — Difficulties, Ultimates, 27 Enemies, 40-Min Stages & 36 Icons', () => {
@@ -47,7 +54,7 @@ describe('Vespera — Difficulties, Ultimates, 27 Enemies, 40-Min Stages & 36 Ic
     );
   });
 
-  it('defines all 7 stages (2400s), expanded enemy pools, and 27 distinct enemies', () => {
+  it('defines all 7 stages (2400s), expanded enemy pools, and 39 distinct enemies including 7 dedicated sub-bosses', () => {
     expect(STAGES).toHaveLength(7);
     expect(STAGES.map((s) => s.id)).toEqual([
       'forest',
@@ -60,16 +67,17 @@ describe('Vespera — Difficulties, Ultimates, 27 Enemies, 40-Min Stages & 36 Ic
     ]);
     for (const stage of STAGES) {
       expect(stage.durationSeconds).toBe(2400);
-      expect(stage.enemyPool.length).toBeGreaterThanOrEqual(6);
+      expect(stage.enemyPool.length).toBeGreaterThanOrEqual(8);
     }
-    expect(Object.keys(ENEMIES)).toHaveLength(27);
+    expect(Object.keys(ENEMIES)).toHaveLength(39);
   });
 
-  it('registers 9 base, 9 evolved, 9 Ultimate weapons, and 9 relics with custom .webp icons', () => {
+  it('registers 9 base, 9 evolved, 9 Ultimate, 10 Exclusive Gold weapons, and 9 relics with custom .webp icons', () => {
     expect(ALL_BASE_WEAPONS).toHaveLength(9);
     expect(ALL_EVOLVED_WEAPONS).toHaveLength(9);
+    expect(ALL_EXCLUSIVE_WEAPONS).toHaveLength(10);
     expect(ALL_RELICS).toHaveLength(9);
-    expect(Object.keys(WEAPONS)).toHaveLength(27);
+    expect(Object.keys(WEAPONS)).toHaveLength(37);
     for (const wId of Object.keys(WEAPONS) as Array<keyof typeof WEAPONS>) {
       expect(getWeaponIconUrl(wId)).toBe(`./art/icons/${wId}.webp`);
     }
@@ -124,7 +132,7 @@ describe('Vespera — Difficulties, Ultimates, 27 Enemies, 40-Min Stages & 36 Ic
     const runInv = createInitialInventory('alaric');
     for (let step = 0; step < 62; step++) {
       const choices = buildUpgradeChoices(runInv, 3, rng);
-      expect(choices.length).toBe(3);
+      expect(choices.length).toBeGreaterThanOrEqual(2);
       const picked = choices[Math.floor(rng() * choices.length)];
       applyUpgradeChoice(runInv, picked);
       expect(getActiveSynergyPairs(runInv).size).toBeLessThanOrEqual(MAX_WEAPON_SLOTS);
@@ -331,5 +339,176 @@ describe('Vespera — Difficulties, Ultimates, 27 Enemies, 40-Min Stages & 36 Ic
     earlyEvoInv.weapons.whip = 4; // Normal max is 5, Forge Lv.5 allows evolution at 4!
     earlyEvoInv.relics.black_heart = 1;
     expect(getAvailableEvolutions(earlyEvoInv)).toEqual(['blood_rose']);
+  });
+
+  it('enforces sub-boss diversity with ZERO main bosses recycled as sub-bosses and enriches all 7 stages with new enemies', () => {
+    const mainBossKinds = new Set([
+      'boss_fenrir',
+      'boss_carmilla',
+      'boss_morghul',
+      'boss_ignis',
+      'boss_vane',
+      'boss_malakor',
+      'boss_reaper',
+    ]);
+    const newRegularKinds = new Set([
+      'skeleton_archer',
+      'catapult',
+      'blood_mage',
+      'vampire_knight',
+      'obsidian_brute',
+    ]);
+
+    const seenSubBosses = new Set<string>();
+    for (const stage of STAGES) {
+      // Mid-boss & every sub-boss must be a dedicated subboss_* — NEVER a main stage boss!
+      expect(mainBossKinds.has(stage.midBoss)).toBe(false);
+      expect(ENEMIES[stage.midBoss].isSubBoss).toBe(true);
+      expect(ENEMIES[stage.midBoss].hasAttackAnim).toBe(true);
+      seenSubBosses.add(stage.midBoss);
+
+      for (const sb of stage.subBossPool) {
+        expect(mainBossKinds.has(sb)).toBe(false);
+        expect(ENEMIES[sb].isSubBoss).toBe(true);
+        expect(ENEMIES[sb].isBoss).toBeFalsy();
+        seenSubBosses.add(sb);
+      }
+
+      // Every stage must contain new tactical enemies!
+      const hasNewEnemy = stage.enemyPool.some((k) => newRegularKinds.has(k));
+      expect(hasNewEnemy).toBe(true);
+    }
+    expect(seenSubBosses.size).toBe(7);
+
+    // Ranged units & siege units properly declare rangedKind and attack animations
+    for (const rangedKind of ['skeleton_archer', 'blood_mage', 'catapult', 'gargoyle', 'necromancer', 'plague_doctor'] as const) {
+      expect(ENEMIES[rangedKind].isRanged).toBe(true);
+      expect(ENEMIES[rangedKind].rangedKind).toBeDefined();
+    }
+    expect(ENEMIES.catapult.hasAttackAnim).toBe(true);
+    expect(ENEMIES.vampire_knight.hasAttackAnim).toBe(true);
+    expect(ENEMIES.obsidian_brute.hasAttackAnim).toBe(true);
+  });
+
+  it('prevents pure-ranged hordes and caps simultaneous ranged enemies & catapults (anti-bullet-hell)', () => {
+    const mixedPool = STAGES[1].enemyPool; // Castle has archers, blood mages, catapults, gargoyles + melee!
+    let seed = 101;
+    const rng = () => {
+      seed = (seed * 1664525 + 1013904223) % 4294967296;
+      return seed / 4294967296;
+    };
+
+    // 1. Horde surges MUST NEVER spawn ranged units!
+    for (let i = 0; i < 120; i++) {
+      const surgePick = pickBalancedSpawnKind(mixedPool, [], 'holi_shit', true, rng);
+      expect(ENEMIES[surgePick].isRanged).toBeFalsy();
+    }
+
+    // 2. When active ranged count hits cap (6 in Normal), spawner strictly falls back to melee
+    const cappedActive = Array.from({ length: 30 }, (_, i) =>
+      i < 6 ? ('skeleton_archer' as const) : ('skeleton' as const)
+    );
+    for (let i = 0; i < 60; i++) {
+      const pick = pickBalancedSpawnKind(mixedPool, cappedActive, 'normal', false, rng);
+      expect(ENEMIES[pick].isRanged).toBeFalsy();
+    }
+
+    // 3. When 2 catapults are already active in Normal, no 3rd catapult can spawn
+    const twoCatapults = [
+      'catapult' as const,
+      'catapult' as const,
+      ...Array.from({ length: 20 }, () => 'skeleton' as const),
+    ];
+    for (let i = 0; i < 60; i++) {
+      const pick = pickBalancedSpawnKind(['catapult', 'skeleton'], twoCatapults, 'normal', false, rng);
+      expect(pick).toBe('skeleton');
+    }
+  });
+
+  it('offers ONLY Gold OR Heal choices on level-up once all weapons & relics are maxed', () => {
+    const maxed = createInitialInventory('alaric', ['whip', 'wand']);
+    maxed.level = 30;
+    maxed.weapons = {
+      abyssal_leviathan: 1,
+      supernova_staff: 1,
+      seraphim_choir: 1,
+      doomsday_guillotine: 1,
+      crimson_eclipse_aura: 1,
+      wrath_of_solaris: 1,
+    };
+    maxed.relics = {
+      black_heart: 5,
+      empty_tome: 5,
+      amber_seal: 5,
+      crimson_candelabra: 5,
+      mercury_blood: 5,
+      duplicator_ring: 3,
+    };
+
+    const choices = buildUpgradeChoices(maxed, 3, () => 0.5);
+    expect(choices).toHaveLength(2);
+    expect(choices.map((c) => c.blessingType)).toEqual(['gold', 'heal']);
+
+    const goldRes = applyUpgradeChoice(maxed, choices[0]);
+    expect(goldRes.goldGained).toBeGreaterThanOrEqual(700);
+    expect(maxed.gold).toBe(goldRes.goldGained);
+
+    const healRes = applyUpgradeChoice(maxed, choices[1]);
+    const eff = computeEffectiveStats(maxed);
+    expect(healRes.healedHp).toBeGreaterThanOrEqual(Math.round(eff.maxHp * 0.44));
+  });
+
+  it('supports 10 expensive Exclusive Gold Weapons, Gold Forge, and Permanent Per-Hero Stat Upgrades', () => {
+    expect(WEAPON_FORGE_GOLD_COSTS).toHaveLength(MAX_WEAPON_FORGE_LEVEL);
+    expect(HERO_UPGRADE_GOLD_COSTS).toHaveLength(MAX_HERO_UPGRADE_LEVEL);
+
+    for (const exId of ALL_EXCLUSIVE_WEAPONS) {
+      const def = WEAPONS[exId];
+      expect(def.isExclusive).toBe(true);
+      expect(def.goldPrice).toBeGreaterThanOrEqual(3500);
+      expect(def.maxLevel).toBe(5);
+    }
+
+    // Locked exclusive weapon does NOT appear in level-up pool until purchased
+    const invUnbought = createInitialInventory('alaric', ['whip']);
+    expect(isExclusiveWeaponUnlocked(invUnbought, 'crimson_katana')).toBe(false);
+    const unboughtChoices = buildUpgradeChoices(invUnbought, 10, () => 0.5);
+    expect(unboughtChoices.some((c) => c.weaponId === 'crimson_katana')).toBe(false);
+
+    // Once purchased & forged to Lv.4, it enters the level-up pool starting at Grau 2!
+    const invBought = createInitialInventory(
+      'alaric',
+      ['whip'],
+      { crimson_katana: 4 },
+      ['crimson_katana']
+    );
+    expect(isExclusiveWeaponUnlocked(invBought, 'crimson_katana')).toBe(true);
+    const boughtChoices = buildUpgradeChoices(invBought, 10, () => 0.5);
+    const katanaChoice = boughtChoices.find((c) => c.weaponId === 'crimson_katana');
+    expect(katanaChoice).toBeDefined();
+    expect(katanaChoice!.nextLevel).toBe(2);
+
+    // Permanent Per-Hero Gold Stat Upgrades boost base & effective stats cleanly
+    const baseHero = computeHeroWithUpgrades('antonio');
+    const upgradedHero = computeHeroWithUpgrades('antonio', {
+      vitality: 5,
+      might: 5,
+      agility: 5,
+      fortitude: 5,
+    });
+    expect(upgradedHero.maxHp).toBe(baseHero.maxHp + 90);
+    expect(upgradedHero.might).toBeCloseTo(baseHero.might + 0.35, 4);
+    expect(upgradedHero.moveSpeed).toBe(baseHero.moveSpeed + 40);
+    expect(upgradedHero.cooldown).toBeLessThan(baseHero.cooldown);
+    expect(upgradedHero.armor).toBeCloseTo(baseHero.armor + 4, 2);
+    expect(upgradedHero.critChance).toBeCloseTo(baseHero.critChance + 0.125, 4);
+
+    const invWithHeroUpg = createInitialInventory('antonio', ['whip'], {}, [], {
+      vitality: 3,
+      might: 2,
+    });
+    const effStats = computeEffectiveStats(invWithHeroUpg);
+    expect(effStats.maxHp).toBe(baseHero.maxHp + 54);
+    expect(effStats.might).toBeCloseTo(baseHero.might + 0.14, 4);
   });
 });

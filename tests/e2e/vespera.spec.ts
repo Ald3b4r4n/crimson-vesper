@@ -24,14 +24,17 @@ test('verifies 4 difficulties, 36 Ultimate Power Grid icons, dense forest & fire
   await expect(page.getByTestId('save-status-msg')).toContainText('salvo');
   await page.getByTestId('export-save-btn').click();
   await expect(page.getByTestId('save-json-textarea')).toContainText('totalSouls');
+  await expect(page.getByTestId('save-json-textarea')).toContainText('totalGold');
   await page.locator('[data-close-save-modal]').click();
   await expect(page.getByTestId('save-game-modal')).toBeHidden();
+  await expect(page.getByTestId('splash-gold-balance')).toBeVisible();
   await page.screenshot({ path: 'test-results/preview-splash-menu.png' });
 
-  // 2. Redesigned Power Grid, Out-of-Game Forge & Ultimate Matrix (36 custom .webp icons: Base + Relic -> Evolved -> Ultimate)
+  // 2. Redesigned Power Grid, 10 Exclusive Gold Weapons Shop & Out-of-Game Forge (36 Synergy + 10 Exclusive Icons = 46!)
   await page.getByTestId('tab-powers').click();
   await expect(page.locator('.synergy-row')).toHaveCount(9);
   await expect(page.locator('.synergy-matrix .power-icon-img')).toHaveCount(36);
+  await expect(page.locator('.exclusive-arsenal-grid .power-icon-img')).toHaveCount(10);
 
   const loadedCount = await page
     .locator('.synergy-matrix .power-icon-img')
@@ -40,12 +43,25 @@ test('verifies 4 difficulties, 36 Ultimate Power Grid icons, dense forest & fire
     );
   expect(loadedCount).toBe(36);
 
-  // Out-of-Game Forge check: upgrade unlocked Whip (60 souls from initial 200), verify locked Bible requires Stage I discovery
+  const loadedExclusiveCount = await page
+    .locator('.exclusive-arsenal-grid .power-icon-img')
+    .evaluateAll((imgs) =>
+      imgs.filter((img) => (img as HTMLImageElement).complete && (img as HTMLImageElement).naturalWidth > 0).length
+    );
+  expect(loadedExclusiveCount).toBe(10);
+
+  // Out-of-Game Forge check: upgrade unlocked Whip (60 souls from initial 200), verify locked Bible & locked Exclusive Gold Weapon
   await expect(page.getByTestId('weapon-forge-panel')).toBeVisible();
   await expect(page.getByTestId('forge-souls-balance')).toHaveText('200');
   await page.getByTestId('forge-upgrade-btn').click();
   await expect(page.getByTestId('forge-souls-balance')).toHaveText('140');
   await expect(page.getByTestId('forge-level-val')).toHaveText('1 / 5');
+  await expect(page.getByTestId('forge-upgrade-gold-btn')).toBeVisible();
+
+  await page.getByTestId('exclusive-tile-crimson_katana').click();
+  await expect(page.getByTestId('buy-exclusive-btn')).toBeVisible();
+  await expect(page.getByTestId('buy-exclusive-btn')).toBeDisabled();
+  await expect(page.getByTestId('buy-exclusive-btn')).toContainText('3.500');
 
   await page.getByTestId('power-tile-bible').click();
   await expect(page.getByTestId('forge-upgrade-btn')).toBeDisabled();
@@ -84,6 +100,11 @@ test('verifies 4 difficulties, 36 Ultimate Power Grid icons, dense forest & fire
   await page.getByTestId('hero-card-antonio').click();
   await expect(page.locator('.showcase-panel')).toContainText('Antonio Cruz');
   await expect(page.locator('.hero-live-sprite')).toHaveCSS('background-size', '1792px 112px');
+  await expect(page.getByTestId('hero-upgrades-panel')).toBeVisible();
+  await expect(page.getByTestId('hero-upg-vitality')).toBeVisible();
+  await expect(page.getByTestId('hero-upg-might')).toBeVisible();
+  await expect(page.getByTestId('hero-upg-agility')).toBeVisible();
+  await expect(page.getByTestId('hero-upg-fortitude')).toBeVisible();
   await expect(page.getByTestId('difficulty-normal')).toBeVisible();
   await expect(page.getByTestId('difficulty-hard')).toBeVisible();
   await expect(page.getByTestId('difficulty-epic')).toBeVisible();
@@ -110,6 +131,7 @@ test('verifies 4 difficulties, 36 Ultimate Power Grid icons, dense forest & fire
 
   // 3. Arena HUD, 40:00 Match Clock, Hidden Weapon Compass, Difficulty Badge, Dense Forest + Fire Physics & Pause Modal
   await expect(page.getByTestId('arena-hud')).toBeVisible({ timeout: 5000 });
+  await expect(page.getByTestId('hud-gold')).toBeVisible();
   await expect(page.locator('#phaser-container canvas')).toBeVisible();
   await expect(page.locator('[data-clock-time]')).toContainText('/ 40:00');
   await expect(page.locator('[data-clock-phase]')).toContainText('HOLI SHIT!');
@@ -306,4 +328,54 @@ test('verifies 4 difficulties, 36 Ultimate Power Grid icons, dense forest & fire
   await expect(page.getByTestId('arena-hud')).toBeVisible({ timeout: 5000 });
   await page.waitForTimeout(1000);
   await page.screenshot({ path: 'test-results/preview-gameplay-inferno-mobile.png' });
+});
+
+test('verifies Gold economy end-to-end: buying Exclusive Weapon, Gold Forging, and Hero Stat Altar upgrades', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1366, height: 840 });
+  await page.goto('/');
+
+  // Seed 6000 Gold via Save Game JSON import to verify live interactive Gold purchases
+  await page.getByTestId('open-save-modal-btn').click();
+  await page.getByTestId('save-json-textarea').fill(
+    JSON.stringify({
+      bestSeconds: 0,
+      bestKills: 0,
+      totalSouls: 200,
+      totalGold: 6000,
+      victories: 0,
+      clearedStages: [],
+      unlockedWeapons: ['whip', 'wand'],
+      purchasedExclusiveWeapons: [],
+      heroUpgrades: {},
+      weaponForge: {},
+      activeRun: null,
+    })
+  );
+  await page.getByTestId('import-save-btn').click();
+  await expect(page.getByTestId('save-status-msg')).toContainText('importado');
+  await page.locator('[data-close-save-modal]').click();
+
+  // 1. Buy Exclusive Katana Carmesim (3500 Gold) & Forge it with Gold (400 Gold -> 2100 Gold remaining)
+  await page.getByTestId('tab-powers').click();
+  await page.getByTestId('exclusive-tile-crimson_katana').click();
+  await expect(page.getByTestId('buy-exclusive-btn')).toBeEnabled();
+  await page.getByTestId('buy-exclusive-btn').click();
+
+  await expect(page.getByTestId('forge-upgrade-gold-btn')).toBeVisible();
+  await expect(page.getByTestId('forge-upgrade-gold-btn')).toBeEnabled();
+  await page.getByTestId('forge-upgrade-gold-btn').click();
+  await expect(page.getByTestId('forge-level-val')).toHaveText('1 / 5');
+  await page.screenshot({ path: 'test-results/preview-exclusive-gold-shop.png' });
+
+  // 2. Upgrade Antonio Cruz Vitality in Hero Stat Altar (350 Gold -> 140 PV becomes 158 PV!)
+  await page.getByRole('button', { name: '← Menu' }).click();
+  await page.getByTestId('menu-play-btn').click();
+  await page.getByTestId('hero-card-antonio').click();
+  await expect(page.getByTestId('hero-stat-hp')).toHaveText('140 PV');
+  await expect(page.getByTestId('hero-upg-lv-vitality')).toHaveText('Nv.0/5');
+  await page.getByTestId('hero-upg-btn-vitality').click();
+  await expect(page.getByTestId('hero-upg-lv-vitality')).toHaveText('Nv.1/5');
+  await expect(page.getByTestId('hero-stat-hp')).toHaveText('158 PV');
 });

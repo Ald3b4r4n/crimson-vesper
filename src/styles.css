@@ -1999,3 +1999,191 @@ body {
   user-select: text;
   -webkit-user-select: text;
 }
+
+/* =========================================================
+   GOLD ECONOMY, 10 EXCLUSIVE WEAPONS SHOP & HERO STAT ALTAR
+   ========================================================= */
+.hud-gold-pill {
+  border-color: rgba(255, 209, 102, 0.55);
+  color: #ffe79e;
+}
+
+.gold-crest-badge {
+  border-color: rgba(255, 209, 102, 0.55);
+  color: #ffe79e;
+}
+
+.gold-inline-tag {
+  font-size: 0.76rem;
+  color: #ffd166;
+}
+
+.arsenal-left-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.arsenal-left-col .synergy-matrix {
+  overflow: visible;
+  flex-shrink: 0;
+}
+
+.exclusive-arsenal-section {
+  background: linear-gradient(180deg, rgba(36, 18, 22, 0.92) 0%, rgba(14, 8, 22, 0.96) 100%);
+  border: 1px solid rgba(255, 209, 102, 0.45);
+  border-radius: 8px;
+  padding: 8px 9px;
+  flex-shrink: 0;
+}
+
+.exclusive-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-family: var(--font-display);
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--gold-bright);
+  margin-bottom: 7px;
+}
+
+.exclusive-arsenal-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.power-icon-tile.exclusive-tile {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  height: auto;
+  border-color: rgba(255, 209, 102, 0.55);
+}
+
+.power-icon-tile.exclusive-tile.owned {
+  border-color: #ffe066;
+  box-shadow: 0 0 10px rgba(255, 209, 102, 0.35);
+}
+
+.gold-price-corner {
+  position: absolute;
+  bottom: 1px;
+  left: 2px;
+  right: 2px;
+  text-align: center;
+  font-size: 0.56rem;
+  font-weight: 800;
+  padding: 0 2px;
+  border-radius: 3px;
+  background: rgba(12, 6, 16, 0.88);
+  color: #ffd166;
+  text-shadow: 0 1px 2px #000;
+}
+
+.forge-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.gold-action-btn {
+  border-color: rgba(255, 209, 102, 0.72) !important;
+  color: #ffe79e !important;
+}
+
+.hero-upgrades-panel {
+  margin-top: 8px;
+  padding: 9px 10px;
+  background: linear-gradient(180deg, rgba(28, 14, 34, 0.9) 0%, rgba(12, 7, 20, 0.95) 100%);
+  border: 1px solid rgba(255, 209, 102, 0.38);
+  border-radius: 8px;
+}
+
+.hero-upgrades-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+  flex-wrap: wrap;
+}
+
+.hero-upgrades-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.hero-upg-card {
+  background: rgba(16, 10, 26, 0.88);
+  border: 1px solid rgba(223, 184, 92, 0.24);
+  border-radius: 6px;
+  padding: 6px 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hero-upg-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  font-size: 0.7rem;
+  color: var(--text-ivory);
+}
+
+.hero-upg-lv {
+  font-size: 0.64rem;
+  font-weight: 700;
+  color: #ffd166;
+}
+
+.hero-upg-bonus {
+  font-size: 0.62rem;
+  color: #98f5cb;
+  line-height: 1.2;
+}
+
+.hero-upg-btn {
+  margin-top: auto;
+  width: 100%;
+  padding: 5px 6px !important;
+  font-size: 0.64rem !important;
+  letter-spacing: 0.04em !important;
+  text-align: center;
+}
+
+.hero-upg-btn:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.upgrade-list.two-choices {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-width: 540px;
+  margin: 0 auto;
+}
+
+@media (max-width: 760px) {
+  #game-root:not(.forced-landscape) .hero-upgrades-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  #game-root:not(.forced-landscape) .arsenal-left-col {
+    overflow: visible;
+  }
+  #game-root:not(.forced-landscape) .exclusive-arsenal-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 4px;
+  }
+  #game-root:not(.forced-landscape) .upgrade-list.two-choices {
+    grid-template-columns: 1fr;
+  }
+}

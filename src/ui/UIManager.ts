@@ -7,12 +7,18 @@ import {
   DIFFICULTY_ORDER,
   DifficultyId,
   ENEMIES,
+  ExclusiveWeaponId,
+  ForgeableWeaponId,
   getRelicIconUrl,
   getWeaponDiscoveryStage,
   getWeaponIconUrl,
   HERO_ORDER,
+  HERO_STAT_UPGRADE_META,
+  HERO_STAT_UPGRADE_ORDER,
   HEROES,
   HeroId,
+  HeroStatUpgradeKey,
+  HeroUpgradeLevels,
   LORE_CHAPTERS,
   RELICS,
   RelicId,
@@ -23,10 +29,15 @@ import {
 } from '../data/loreData';
 import {
   ALL_BASE_WEAPONS,
+  ALL_EXCLUSIVE_WEAPONS,
+  computeHeroWithUpgrades,
   computeWeaponForgeBonus,
+  HERO_UPGRADE_GOLD_COSTS,
+  MAX_HERO_UPGRADE_LEVEL,
   MAX_WEAPON_FORGE_LEVEL,
   UpgradeChoice,
   WEAPON_FORGE_COSTS,
+  WEAPON_FORGE_GOLD_COSTS,
 } from '../game/UpgradeLogic';
 import { ArenaCallbacks, HudSnapshot, RunSummary, SavedActiveRun } from '../scenes/ArenaScene';
 import { ViewportManager } from './ViewportManager';
@@ -40,10 +51,13 @@ interface SavedRecords {
   bestSeconds: number;
   bestKills: number;
   totalSouls: number;
+  totalGold: number;
   victories: number;
   clearedStages: StageId[];
   unlockedWeapons: BaseWeaponId[];
-  weaponForge: Partial<Record<BaseWeaponId, number>>;
+  purchasedExclusiveWeapons: ExclusiveWeaponId[];
+  heroUpgrades: Partial<Record<HeroId, HeroUpgradeLevels>>;
+  weaponForge: Partial<Record<ForgeableWeaponId, number>>;
   lastSavedAt?: string;
   activeRun?: SavedActiveRun | null;
 }
@@ -87,7 +101,9 @@ export class UIManager {
     callbacks: ArenaCallbacks,
     metaProgression?: {
       unlockedWeapons: BaseWeaponId[];
-      weaponForge: Partial<Record<BaseWeaponId, number>>;
+      purchasedExclusiveWeapons?: ExclusiveWeaponId[];
+      heroUpgrades?: HeroUpgradeLevels;
+      weaponForge: Partial<Record<ForgeableWeaponId, number>>;
     },
     resumeCheckpoint?: SavedActiveRun
   ) => void;
@@ -110,6 +126,7 @@ export class UIManager {
   private weaponCompassEl: HTMLElement | null = null;
   private killsEl: HTMLElement | null = null;
   private soulsEl: HTMLElement | null = null;
+  private goldEl: HTMLElement | null = null;
   private dashBtnEl: HTMLButtonElement | null = null;
   private dashLabelEl: HTMLElement | null = null;
   private bannerEl: HTMLElement | null = null;
@@ -133,7 +150,9 @@ export class UIManager {
         callbacks: ArenaCallbacks,
         metaProgression?: {
           unlockedWeapons: BaseWeaponId[];
-          weaponForge: Partial<Record<BaseWeaponId, number>>;
+          purchasedExclusiveWeapons?: ExclusiveWeaponId[];
+          heroUpgrades?: HeroUpgradeLevels;
+          weaponForge: Partial<Record<ForgeableWeaponId, number>>;
         },
         resumeCheckpoint?: SavedActiveRun
       ) => void;
@@ -194,16 +213,27 @@ export class UIManager {
               ALL_BASE_WEAPONS.includes(w as BaseWeaponId)
             )
           : [];
+        const rawPurchased = Array.isArray(parsed.purchasedExclusiveWeapons)
+          ? parsed.purchasedExclusiveWeapons.filter((w): w is ExclusiveWeaponId =>
+              ALL_EXCLUSIVE_WEAPONS.includes(w as ExclusiveWeaponId)
+            )
+          : [];
         return {
           bestSeconds: Number(parsed.bestSeconds) || 0,
           bestKills: Number(parsed.bestKills) || 0,
           totalSouls: typeof parsed.totalSouls === 'number' ? parsed.totalSouls : 200,
+          totalGold: typeof parsed.totalGold === 'number' ? Math.max(0, parsed.totalGold) : 0,
           victories: Number(parsed.victories) || 0,
           clearedStages: Array.isArray(parsed.clearedStages) ? parsed.clearedStages : [],
           unlockedWeapons:
             rawUnlocked.length > 0
               ? Array.from(new Set([...DEFAULT_UNLOCKED_WEAPONS, ...rawUnlocked]))
               : [...DEFAULT_UNLOCKED_WEAPONS],
+          purchasedExclusiveWeapons: Array.from(new Set(rawPurchased)),
+          heroUpgrades:
+            parsed.heroUpgrades && typeof parsed.heroUpgrades === 'object'
+              ? parsed.heroUpgrades
+              : {},
           weaponForge:
             parsed.weaponForge && typeof parsed.weaponForge === 'object' ? parsed.weaponForge : {},
           lastSavedAt: typeof parsed.lastSavedAt === 'string' ? parsed.lastSavedAt : undefined,
@@ -223,9 +253,12 @@ export class UIManager {
       bestSeconds: 0,
       bestKills: 0,
       totalSouls: 200,
+      totalGold: 0,
       victories: 0,
       clearedStages: [],
       unlockedWeapons: [...DEFAULT_UNLOCKED_WEAPONS],
+      purchasedExclusiveWeapons: [],
+      heroUpgrades: {},
       weaponForge: {},
       activeRun: null,
     };
@@ -264,6 +297,11 @@ export class UIManager {
             ALL_BASE_WEAPONS.includes(w as BaseWeaponId)
           )
         : [];
+      const purchased = Array.isArray(parsed.purchasedExclusiveWeapons)
+        ? parsed.purchasedExclusiveWeapons.filter((w): w is ExclusiveWeaponId =>
+            ALL_EXCLUSIVE_WEAPONS.includes(w as ExclusiveWeaponId)
+          )
+        : [];
       const cleared = Array.isArray(parsed.clearedStages)
         ? parsed.clearedStages.filter((s): s is StageId => STAGES.some((st) => st.id === s))
         : [];
@@ -271,9 +309,13 @@ export class UIManager {
         bestSeconds: Math.max(0, Number(parsed.bestSeconds) || 0),
         bestKills: Math.max(0, Number(parsed.bestKills) || 0),
         totalSouls: Math.max(0, Number(parsed.totalSouls) || 0),
+        totalGold: Math.max(0, Number(parsed.totalGold) || 0),
         victories: Math.max(0, Number(parsed.victories) || 0),
         clearedStages: cleared,
         unlockedWeapons: Array.from(new Set([...DEFAULT_UNLOCKED_WEAPONS, ...unlocked])),
+        purchasedExclusiveWeapons: Array.from(new Set(purchased)),
+        heroUpgrades:
+          parsed.heroUpgrades && typeof parsed.heroUpgrades === 'object' ? parsed.heroUpgrades : {},
         weaponForge:
           parsed.weaponForge && typeof parsed.weaponForge === 'object' ? parsed.weaponForge : {},
         activeRun:
@@ -296,6 +338,7 @@ export class UIManager {
     rec.bestSeconds = Math.max(rec.bestSeconds, Math.floor(summary.elapsedSeconds));
     rec.bestKills = Math.max(rec.bestKills, summary.kills);
     rec.totalSouls += summary.souls;
+    rec.totalGold += Math.max(0, Math.round(summary.gold ?? 0));
     if (summary.victory) {
       rec.victories += 1;
       if (!rec.clearedStages.includes(summary.stageId)) {
@@ -313,16 +356,62 @@ export class UIManager {
     }
   }
 
-  private upgradeWeaponInForge(weaponId: BaseWeaponId): boolean {
+  private buyExclusiveWeapon(weaponId: ExclusiveWeaponId): boolean {
     const rec = this.loadRecords();
-    if (!rec.unlockedWeapons.includes(weaponId)) return false;
+    if (rec.purchasedExclusiveWeapons.includes(weaponId)) return false;
+    const price = WEAPONS[weaponId].goldPrice ?? 99999;
+    if (rec.totalGold < price) return false;
+
+    rec.totalGold -= price;
+    rec.purchasedExclusiveWeapons.push(weaponId);
+    this.saveRecords(rec);
+    gothicAudio.playLevelUp();
+    return true;
+  }
+
+  private upgradeWeaponInForge(
+    weaponId: ForgeableWeaponId,
+    currency: 'souls' | 'gold' = 'souls'
+  ): boolean {
+    const rec = this.loadRecords();
+    const isExclusive = ALL_EXCLUSIVE_WEAPONS.includes(weaponId as ExclusiveWeaponId);
+    const unlocked = isExclusive
+      ? rec.purchasedExclusiveWeapons.includes(weaponId as ExclusiveWeaponId)
+      : rec.unlockedWeapons.includes(weaponId as BaseWeaponId);
+    if (!unlocked) return false;
+
     const currentLv = rec.weaponForge[weaponId] ?? 0;
     if (currentLv >= MAX_WEAPON_FORGE_LEVEL) return false;
-    const cost = WEAPON_FORGE_COSTS[currentLv];
-    if (rec.totalSouls < cost) return false;
 
-    rec.totalSouls -= cost;
+    if (currency === 'gold') {
+      const goldCost = WEAPON_FORGE_GOLD_COSTS[currentLv];
+      if (rec.totalGold < goldCost) return false;
+      rec.totalGold -= goldCost;
+    } else {
+      if (isExclusive) return false;
+      const soulCost = WEAPON_FORGE_COSTS[currentLv];
+      if (rec.totalSouls < soulCost) return false;
+      rec.totalSouls -= soulCost;
+    }
+
     rec.weaponForge[weaponId] = currentLv + 1;
+    this.saveRecords(rec);
+    gothicAudio.playLevelUp();
+    return true;
+  }
+
+  private upgradeHeroStat(heroId: HeroId, statKey: HeroStatUpgradeKey): boolean {
+    const rec = this.loadRecords();
+    const current = rec.heroUpgrades[heroId]?.[statKey] ?? 0;
+    if (current >= MAX_HERO_UPGRADE_LEVEL) return false;
+    const cost = HERO_UPGRADE_GOLD_COSTS[current];
+    if (rec.totalGold < cost) return false;
+
+    rec.totalGold -= cost;
+    rec.heroUpgrades[heroId] = {
+      ...(rec.heroUpgrades[heroId] ?? {}),
+      [statKey]: current + 1,
+    };
     this.saveRecords(rec);
     gothicAudio.playLevelUp();
     return true;
@@ -538,10 +627,11 @@ export class UIManager {
     status.className = 'splash-status-strip';
     status.innerHTML = `
       <span>👑 Regiões Purificadas: <strong>${rec.clearedStages.length}/7</strong></span>
-      <span>⚔ Armas Liberadas: <strong>${rec.unlockedWeapons.length}/9</strong></span>
-      <span>☠ Recorde de Abates: <strong>${rec.bestKills}</strong></span>
+      <span>⚔ Armas: <strong>${rec.unlockedWeapons.length}/9</strong> · Exclusivas: <strong>${rec.purchasedExclusiveWeapons.length}/10</strong></span>
+      <span>🪙 Ouro: <strong data-testid="splash-gold-balance">${rec.totalGold.toLocaleString('pt-BR')}</strong></span>
       <span>✦ Almas: <strong>${rec.totalSouls}</strong></span>
-      <span>⏱ Melhor Tempo: <strong>${formatClock(rec.bestSeconds)}</strong></span>
+      <span>☠ Abates: <strong>${rec.bestKills}</strong></span>
+      <span>⏱ Melhor: <strong>${formatClock(rec.bestSeconds)}</strong></span>
     `;
     menu.appendChild(status);
   }
@@ -586,6 +676,7 @@ export class UIManager {
   }
 
   private buildHeroSelectScreen(menu: HTMLElement): void {
+    const rec = this.loadRecords();
     const shell = document.createElement('div');
     shell.className = 'subscreen-shell';
 
@@ -605,7 +696,11 @@ export class UIManager {
     title.className = 'subscreen-title';
     title.textContent = 'Escolha seu Juramentado';
 
-    header.append(backBtn, title, document.createElement('div'));
+    const goldBadge = document.createElement('div');
+    goldBadge.className = 'weapon-crest-badge gold-crest-badge';
+    goldBadge.innerHTML = `🪙 Ouro: <strong data-testid="hero-gold-balance">${rec.totalGold.toLocaleString('pt-BR')}</strong>`;
+
+    header.append(backBtn, title, goldBadge);
     shell.appendChild(header);
 
     const body = document.createElement('div');
@@ -617,6 +712,8 @@ export class UIManager {
     for (const hId of HERO_ORDER) {
       const h = HEROES[hId];
       const w = WEAPONS[h.startingWeapon];
+      const hUpgs = rec.heroUpgrades[hId];
+      const totalUpgLv = HERO_STAT_UPGRADE_ORDER.reduce((acc, k) => acc + (hUpgs?.[k] ?? 0), 0);
       const slot = document.createElement('button');
       slot.type = 'button';
       slot.dataset.testid = `hero-card-${hId}`;
@@ -624,7 +721,7 @@ export class UIManager {
       slot.innerHTML = `
         <img class="roster-thumb" src="${h.portraitUrl}" alt="${h.name}" />
         <div>
-          <div class="roster-slot-name">${h.name}</div>
+          <div class="roster-slot-name">${h.name}${totalUpgLv > 0 ? ` <span style="color:#ffd166;font-size:0.68rem">★+${totalUpgLv}</span>` : ''}</div>
           <div class="roster-slot-sub">
             <img class="mini-icon-inline" src="${getWeaponIconUrl(h.startingWeapon)}" alt="${w.name}" />
             ${w.name}
@@ -641,12 +738,13 @@ export class UIManager {
 
     const hero = HEROES[this.selectedHero];
     const startWeapon = WEAPONS[hero.startingWeapon];
-    const s = hero.baseStats;
+    const heroUpg = rec.heroUpgrades[hero.id] ?? {};
+    const s = computeHeroWithUpgrades(hero.id, heroUpg);
 
-    const hpPct = Math.min(100, Math.round((s.maxHp / 150) * 100));
-    const dmgPct = Math.min(100, Math.round((s.might / 1.3) * 100));
-    const spdPct = Math.min(100, Math.round((s.moveSpeed / 205) * 100));
-    const critPct = Math.min(100, Math.round((s.critChance / 0.25) * 100));
+    const hpPct = Math.min(100, Math.round((s.maxHp / 230) * 100));
+    const dmgPct = Math.min(100, Math.round((s.might / 1.65) * 100));
+    const spdPct = Math.min(100, Math.round((s.moveSpeed / 245) * 100));
+    const critPct = Math.min(100, Math.round((s.critChance / 0.4) * 100));
 
     const showcase = document.createElement('div');
     showcase.className = 'showcase-panel';
@@ -669,24 +767,24 @@ export class UIManager {
 
         <div class="stat-bars-grid">
           <div class="stat-bar-item">
-            <div class="stat-bar-label"><span>VITALIDADE</span><span>${s.maxHp} PV</span></div>
+            <div class="stat-bar-label"><span>VITALIDADE</span><span data-testid="hero-stat-hp">${s.maxHp} PV</span></div>
             <div class="stat-bar-track"><div class="stat-bar-fill" style="width:${hpPct}%"></div></div>
           </div>
           <div class="stat-bar-item">
-            <div class="stat-bar-label"><span>PODER DE DANO</span><span>${Math.round(s.might * 100)}%</span></div>
+            <div class="stat-bar-label"><span>PODER DE DANO</span><span data-testid="hero-stat-might">${Math.round(s.might * 100)}%</span></div>
             <div class="stat-bar-track"><div class="stat-bar-fill" style="width:${dmgPct}%"></div></div>
           </div>
           <div class="stat-bar-item">
-            <div class="stat-bar-label"><span>VELOCIDADE</span><span>${s.moveSpeed}</span></div>
+            <div class="stat-bar-label"><span>VELOCIDADE</span><span data-testid="hero-stat-speed">${s.moveSpeed}</span></div>
             <div class="stat-bar-track"><div class="stat-bar-fill" style="width:${spdPct}%"></div></div>
           </div>
           <div class="stat-bar-item">
-            <div class="stat-bar-label"><span>CHANCE CRÍTICA</span><span>${Math.round(s.critChance * 100)}%</span></div>
+            <div class="stat-bar-label"><span>CHANCE CRÍTICA</span><span data-testid="hero-stat-crit">${Math.round(s.critChance * 100)}%</span></div>
             <div class="stat-bar-track"><div class="stat-bar-fill" style="width:${critPct}%"></div></div>
           </div>
         </div>
 
-        <p style="font-family:var(--font-lore); font-size:0.98rem; color:#dfd3dd; margin:6px 0 0">
+        <p style="font-family:var(--font-lore); font-size:0.95rem; color:#dfd3dd; margin:4px 0 0">
           ${hero.lore} <em style="color:#f5c2cf">${hero.quote}</em>
         </p>
       </div>
@@ -697,7 +795,47 @@ export class UIManager {
       </div>
     `;
 
+    // Permanent Per-Hero Gold Stat Upgrade Sanctuary
+    const upgPanel = document.createElement('div');
+    upgPanel.className = 'hero-upgrades-panel';
+    upgPanel.dataset.testid = 'hero-upgrades-panel';
+    upgPanel.innerHTML = `
+      <div class="hero-upgrades-header">
+        <span class="forge-title">⚜ Altar de Evolução · ${hero.name}</span>
+        <span class="gold-inline-tag">🪙 <strong>${rec.totalGold.toLocaleString('pt-BR')}</strong> Ouro</span>
+      </div>
+      <div class="hero-upgrades-grid">
+        ${HERO_STAT_UPGRADE_ORDER.map((statKey) => {
+          const meta = HERO_STAT_UPGRADE_META[statKey];
+          const lv = heroUpg[statKey] ?? 0;
+          const isMax = lv >= MAX_HERO_UPGRADE_LEVEL;
+          const cost = isMax ? 0 : HERO_UPGRADE_GOLD_COSTS[lv];
+          const canBuy = !isMax && rec.totalGold >= cost;
+          return `
+            <div class="hero-upg-card" data-testid="hero-upg-${statKey}">
+              <div class="hero-upg-top">
+                <span>${meta.icon} <strong>${meta.label}</strong></span>
+                <span class="hero-upg-lv" data-testid="hero-upg-lv-${statKey}">Nv.${lv}/${MAX_HERO_UPGRADE_LEVEL}</span>
+              </div>
+              <div class="hero-upg-bonus">${meta.bonusLabel}</div>
+              <button type="button" class="btn-gothic secondary hero-upg-btn" data-hero-upg-btn="${statKey}" data-testid="hero-upg-btn-${statKey}" ${canBuy ? '' : 'disabled'}>
+                ${isMax ? '👑 Máximo' : `🪙 ${cost.toLocaleString('pt-BR')} Ouro`}
+              </button>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+    HERO_STAT_UPGRADE_ORDER.forEach((statKey) => {
+      upgPanel.querySelector(`[data-hero-upg-btn="${statKey}"]`)?.addEventListener('click', () => {
+        if (this.upgradeHeroStat(hero.id, statKey)) {
+          this.renderMenu();
+        }
+      });
+    });
+
     const infoTop = showcase.firstElementChild;
+    infoTop?.appendChild(upgPanel);
     infoTop?.appendChild(this.buildDifficultyStrip());
 
     showcase.querySelector('[data-testid="go-stage-select-btn"]')?.addEventListener('click', () => {
@@ -878,17 +1016,20 @@ export class UIManager {
     });
     const title = document.createElement('h2');
     title.className = 'subscreen-title';
-    title.textContent = 'Grade de Poderes & Forja (36)';
+    title.textContent = 'Arsenal, Loja de Ouro & Forja (46)';
     const soulsTag = document.createElement('div');
     soulsTag.className = 'weapon-crest-badge';
-    soulsTag.innerHTML = `✦ Almas: <strong>${rec.totalSouls}</strong> · Liberadas: <strong>${rec.unlockedWeapons.length}/9</strong>`;
+    soulsTag.innerHTML = `🪙 Ouro: <strong data-testid="arsenal-gold-balance">${rec.totalGold.toLocaleString('pt-BR')}</strong> · ✦ Almas: <strong>${rec.totalSouls}</strong> · Exclusivas: <strong>${rec.purchasedExclusiveWeapons.length}/10</strong>`;
     header.append(backBtn, title, soulsTag);
     shell.appendChild(header);
 
     const body = document.createElement('div');
     body.className = 'subscreen-body';
 
-    // Left: 9-Row Visual Synergy Matrix (Arma Base + Relíquia -> ★ Evolução -> 👑 Ultimate)
+    const leftCol = document.createElement('div');
+    leftCol.className = 'arsenal-left-col';
+
+    // Left Top: 9-Row Visual Synergy Matrix (Arma Base + Relíquia -> ★ Evolução -> 👑 Ultimate) — 36 icons!
     const matrix = document.createElement('div');
     matrix.className = 'synergy-matrix';
 
@@ -976,6 +1117,49 @@ export class UIManager {
       matrix.appendChild(row);
     }
 
+    // Left Bottom: 10 Exclusive Gold-Shop Legendary Weapons Shelf!
+    const exclusiveSection = document.createElement('div');
+    exclusiveSection.className = 'exclusive-arsenal-section';
+    exclusiveSection.innerHTML = `
+      <div class="exclusive-section-header">
+        <span>🏪 Armas Exclusivas de Ouro (${rec.purchasedExclusiveWeapons.length}/10)</span>
+        <span style="color:#ffd166; font-size:0.68rem">🪙 ${rec.totalGold.toLocaleString('pt-BR')}</span>
+      </div>
+    `;
+    const exclusiveGrid = document.createElement('div');
+    exclusiveGrid.className = 'exclusive-arsenal-grid';
+    exclusiveGrid.dataset.testid = 'exclusive-arsenal-grid';
+
+    for (const exId of ALL_EXCLUSIVE_WEAPONS) {
+      const exW = WEAPONS[exId];
+      const owned = rec.purchasedExclusiveWeapons.includes(exId);
+      const forgeLv = rec.weaponForge[exId] ?? 0;
+      const isSel = this.inspectedPower.kind === 'weapon' && this.inspectedPower.id === exId;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.dataset.testid = `exclusive-tile-${exId}`;
+      btn.className = `power-icon-tile exclusive-tile ${owned ? 'owned' : 'locked-tile'} ${isSel ? 'selected' : ''}`;
+      btn.title = `${exW.name} (${owned ? 'Adquirida' : `${(exW.goldPrice ?? 0).toLocaleString('pt-BR')} Ouro`})`;
+      btn.innerHTML = `
+        <img class="power-icon-img" src="${getWeaponIconUrl(exId)}" alt="${exW.name}" />
+        ${
+          owned
+            ? forgeLv > 0
+              ? `<span class="forge-lv-corner">⚒${forgeLv}</span>`
+              : '<span class="evo-star-corner ultimate">✦</span>'
+            : `<span class="gold-price-corner">${Math.round((exW.goldPrice ?? 0) / 100) / 10}k</span>`
+        }
+      `;
+      btn.addEventListener('click', () => {
+        gothicAudio.playHit();
+        this.inspectedPower = { kind: 'weapon', id: exId };
+        this.renderMenu();
+      });
+      exclusiveGrid.appendChild(btn);
+    }
+    exclusiveSection.appendChild(exclusiveGrid);
+    leftCol.append(matrix, exclusiveSection);
+
     // Right: Rich Power Inspector Card
     const inspector = document.createElement('div');
     inspector.className = 'showcase-panel codex-card';
@@ -1022,8 +1206,20 @@ export class UIManager {
                 </div>`
               : '';
 
-      const badgeColor = w.isUltimate ? '#ffd166' : w.isEvolved ? '#ff8fa3' : '#98f5cb';
-      const tileClass = w.isUltimate ? 'ultimate-tile' : w.isEvolved ? 'evolved-tile' : '';
+      const badgeColor = w.isExclusive
+        ? '#ffd166'
+        : w.isUltimate
+          ? '#ffd166'
+          : w.isEvolved
+            ? '#ff8fa3'
+            : '#98f5cb';
+      const tileClass = w.isExclusive
+        ? 'ultimate-tile'
+        : w.isUltimate
+          ? 'ultimate-tile'
+          : w.isEvolved
+            ? 'evolved-tile'
+            : '';
 
       inspector.innerHTML = `
         <div>
@@ -1089,9 +1285,14 @@ export class UIManager {
       `;
     }
 
-    // Out-of-Game Weapon Evolution Forge Panel for the selected weapon lineage
-    const lineageBaseId: BaseWeaponId =
-      this.inspectedPower.kind === 'weapon'
+    // Out-of-Game Weapon Evolution Forge & Gold Shop Panel for the selected weapon lineage
+    const inspectedWeaponDef =
+      this.inspectedPower.kind === 'weapon' ? WEAPONS[this.inspectedPower.id] : null;
+    const isInspectingExclusive = Boolean(inspectedWeaponDef?.isExclusive);
+
+    const forgeTargetId: ForgeableWeaponId = isInspectingExclusive
+      ? (inspectedWeaponDef!.id as ExclusiveWeaponId)
+      : this.inspectedPower.kind === 'weapon'
         ? (() => {
             const w = WEAPONS[this.inspectedPower.id];
             if (w.isUltimate && w.ultimateOf) {
@@ -1102,28 +1303,48 @@ export class UIManager {
           })()
         : RELICS[this.inspectedPower.id].synergyWeapon;
 
-    const baseWDef = WEAPONS[lineageBaseId];
-    const baseCatDef = baseWDef.catalystRelic ? RELICS[baseWDef.catalystRelic] : undefined;
-    const isUnlocked = rec.unlockedWeapons.includes(lineageBaseId);
-    const forgeLv = rec.weaponForge[lineageBaseId] ?? 0;
+    const targetWDef = WEAPONS[forgeTargetId];
+    const baseCatDef = targetWDef.catalystRelic ? RELICS[targetWDef.catalystRelic] : undefined;
+    const isUnlocked = isInspectingExclusive
+      ? rec.purchasedExclusiveWeapons.includes(forgeTargetId as ExclusiveWeaponId)
+      : rec.unlockedWeapons.includes(forgeTargetId as BaseWeaponId);
+    const forgeLv = rec.weaponForge[forgeTargetId] ?? 0;
     const fb = computeWeaponForgeBonus(forgeLv);
-    const discStage = getWeaponDiscoveryStage(lineageBaseId);
-    const nextCost = forgeLv < MAX_WEAPON_FORGE_LEVEL ? WEAPON_FORGE_COSTS[forgeLv] : 0;
-    const canForge = isUnlocked && forgeLv < MAX_WEAPON_FORGE_LEVEL && rec.totalSouls >= nextCost;
+    const discStage = isInspectingExclusive
+      ? undefined
+      : getWeaponDiscoveryStage(forgeTargetId as BaseWeaponId);
+    const nextSoulCost = forgeLv < MAX_WEAPON_FORGE_LEVEL ? WEAPON_FORGE_COSTS[forgeLv] : 0;
+    const nextGoldCost = forgeLv < MAX_WEAPON_FORGE_LEVEL ? WEAPON_FORGE_GOLD_COSTS[forgeLv] : 0;
+    const exclusivePrice = targetWDef.goldPrice ?? 0;
+    const canBuyExclusive = isInspectingExclusive && !isUnlocked && rec.totalGold >= exclusivePrice;
+    const canForgeSouls =
+      !isInspectingExclusive &&
+      isUnlocked &&
+      forgeLv < MAX_WEAPON_FORGE_LEVEL &&
+      rec.totalSouls >= nextSoulCost;
+    const canForgeGold =
+      isUnlocked && forgeLv < MAX_WEAPON_FORGE_LEVEL && rec.totalGold >= nextGoldCost;
 
     const forgeEl = document.createElement('div');
     forgeEl.className = 'weapon-forge-panel';
     forgeEl.dataset.testid = 'weapon-forge-panel';
     forgeEl.innerHTML = `
       <div class="forge-header-row">
-        <span class="forge-title">⚒ Forja & Evolução Fora de Jogo · ${baseWDef.name}</span>
-        <span class="forge-souls-tag">Almas: <strong data-testid="forge-souls-balance">${rec.totalSouls}</strong> ✦</span>
+        <span class="forge-title">⚒ Forja & Evolução Fora de Jogo · ${targetWDef.name}</span>
+        <span class="forge-souls-tag">
+          🪙 <strong data-testid="forge-gold-balance">${rec.totalGold.toLocaleString('pt-BR')}</strong> ·
+          ✦ <strong data-testid="forge-souls-balance">${rec.totalSouls}</strong>
+        </span>
       </div>
       <div class="forge-status-line" data-testid="forge-lock-status">
         ${
-          isUnlocked
-            ? `<span style="color:#7be0ad">✦ Linhagem Desbloqueada (${baseWDef.name}${baseCatDef ? ` + ${baseCatDef.name}` : ''}) & Disponível nas Fases</span>`
-            : `<span style="color:#ffb3c1">🔒 Oculta na Fase ${discStage?.roman ?? '?'}: ${discStage?.name ?? ''} — libera ${baseWDef.name}${baseCatDef ? ` + ${baseCatDef.name}` : ''} (${discStage?.hiddenAltarName ?? ''})</span>`
+          isInspectingExclusive
+            ? isUnlocked
+              ? `<span style="color:#7be0ad">✦ Arma Exclusiva Adquirida! Disponível nos Level-Ups e na Forja de Ouro.</span>`
+              : `<span style="color:#ffd166">🏪 Exclusiva da Loja de Ouro · Preço: <strong>${exclusivePrice.toLocaleString('pt-BR')} Ouro</strong></span>`
+            : isUnlocked
+              ? `<span style="color:#7be0ad">✦ Linhagem Desbloqueada (${targetWDef.name}${baseCatDef ? ` + ${baseCatDef.name}` : ''}) & Disponível nas Fases</span>`
+              : `<span style="color:#ffb3c1">🔒 Oculta na Fase ${discStage?.roman ?? '?'}: ${discStage?.name ?? ''} — libera ${targetWDef.name}${baseCatDef ? ` + ${baseCatDef.name}` : ''} (${discStage?.hiddenAltarName ?? ''})</span>`
         }
       </div>
       <div class="forge-bonus-grid">
@@ -1132,25 +1353,58 @@ export class UIManager {
         <span>Área: <strong>+${Math.round((fb.areaMult - 1) * 100)}%</strong></span>
         <span>Recarga: <strong>-${Math.round((1 - fb.cooldownMult) * 100)}%</strong></span>
         <span>Projéteis: <strong>+${fb.bonusAmount}</strong></span>
-        <span>Inicial: <strong>Nv.${fb.startingLevel}</strong>${fb.earlyEvoDiscount > 0 ? ' · <strong style="color:#ffd166">Evolui -1 Nv!</strong>' : ''}</span>
+        <span>Inicial: <strong>Nv.${fb.startingLevel}</strong>${!isInspectingExclusive && fb.earlyEvoDiscount > 0 ? ' · <strong style="color:#ffd166">Evolui -1 Nv!</strong>' : ''}</span>
       </div>
-      <button type="button" class="btn-gothic forge-upgrade-btn" data-testid="forge-upgrade-btn" ${canForge ? '' : 'disabled'}>
+      <div class="forge-actions-row">
         ${
-          !isUnlocked
-            ? `🔒 Encontre na Fase ${discStage?.roman ?? '?'}`
-            : forgeLv >= MAX_WEAPON_FORGE_LEVEL
-              ? '👑 Forja Suprema Máxima (5/5)'
-              : rec.totalSouls >= nextCost
-                ? `⚒ Evoluir na Forja (${nextCost} ✦)`
-                : `Precisa ${nextCost} Almas ✦`
+          isInspectingExclusive && !isUnlocked
+            ? `<button type="button" class="btn-gothic forge-upgrade-btn gold-action-btn" data-testid="buy-exclusive-btn" ${canBuyExclusive ? '' : 'disabled'}>
+                ${canBuyExclusive ? `🪙 Comprar Arma Exclusiva (${exclusivePrice.toLocaleString('pt-BR')} Ouro)` : `🔒 Precisa ${exclusivePrice.toLocaleString('pt-BR')} Ouro`}
+              </button>`
+            : `${
+                !isInspectingExclusive
+                  ? `<button type="button" class="btn-gothic forge-upgrade-btn" data-testid="forge-upgrade-btn" ${canForgeSouls ? '' : 'disabled'}>
+                      ${
+                        !isUnlocked
+                          ? `🔒 Encontre na Fase ${discStage?.roman ?? '?'}`
+                          : forgeLv >= MAX_WEAPON_FORGE_LEVEL
+                            ? '👑 Forja Suprema Máxima (5/5)'
+                            : rec.totalSouls >= nextSoulCost
+                              ? `⚒ Evoluir na Forja (${nextSoulCost} ✦)`
+                              : `Precisa ${nextSoulCost} Almas ✦`
+                      }
+                    </button>`
+                  : ''
+              }
+              <button type="button" class="btn-gothic secondary forge-upgrade-btn gold-action-btn" data-testid="forge-upgrade-gold-btn" ${canForgeGold ? '' : 'disabled'}>
+                ${
+                  !isUnlocked
+                    ? '🔒 Bloqueada'
+                    : forgeLv >= MAX_WEAPON_FORGE_LEVEL
+                      ? '👑 Forja Máxima (5/5)'
+                      : `🪙 Forjar c/ Ouro (${nextGoldCost.toLocaleString('pt-BR')})`
+                }
+              </button>`
         }
-      </button>
+      </div>
     `;
-    forgeEl.querySelector('[data-testid="forge-upgrade-btn"]')?.addEventListener('click', () => {
-      if (this.upgradeWeaponInForge(lineageBaseId)) {
+    forgeEl.querySelector('[data-testid="buy-exclusive-btn"]')?.addEventListener('click', () => {
+      if (this.buyExclusiveWeapon(forgeTargetId as ExclusiveWeaponId)) {
         this.renderMenu();
       }
     });
+    forgeEl.querySelector('[data-testid="forge-upgrade-btn"]')?.addEventListener('click', () => {
+      if (this.upgradeWeaponInForge(forgeTargetId, 'souls')) {
+        this.renderMenu();
+      }
+    });
+    forgeEl
+      .querySelector('[data-testid="forge-upgrade-gold-btn"]')
+      ?.addEventListener('click', () => {
+        if (this.upgradeWeaponInForge(forgeTargetId, 'gold')) {
+          this.renderMenu();
+        }
+      });
     inspector.appendChild(forgeEl);
 
     // Compact Per-Stage Weapon & Catalyst Discovery Table
@@ -1188,7 +1442,7 @@ export class UIManager {
     `;
     inspector.appendChild(stageListEl);
 
-    body.append(matrix, inspector);
+    body.append(leftCol, inspector);
     shell.appendChild(body);
     menu.appendChild(shell);
   }
@@ -1295,6 +1549,8 @@ export class UIManager {
         },
         {
           unlockedWeapons: rec.unlockedWeapons,
+          purchasedExclusiveWeapons: rec.purchasedExclusiveWeapons,
+          heroUpgrades: rec.heroUpgrades[hero],
           weaponForge: rec.weaponForge,
         },
         resumeCheckpoint
@@ -1332,6 +1588,7 @@ export class UIManager {
 
         <div class="stats-right">
           <div class="stat-pill">☠ <strong data-kills>0</strong></div>
+          <div class="stat-pill hud-gold-pill">🪙 <strong data-gold data-testid="hud-gold">0</strong></div>
           <div class="stat-pill">✦ <strong data-souls>0</strong></div>
           <button type="button" class="hud-icon-btn" data-hud-fs title="Tela Cheia Deitada">⛶</button>
           <button type="button" class="hud-icon-btn" data-hud-bgm title="Música">${gothicSoundtrack.isMuted() ? '🎵✕' : '🎵'}</button>
@@ -1374,6 +1631,7 @@ export class UIManager {
     this.weaponCompassEl = hud.querySelector('[data-testid="hud-weapon-compass"]');
     this.killsEl = hud.querySelector('[data-kills]');
     this.soulsEl = hud.querySelector('[data-souls]');
+    this.goldEl = hud.querySelector('[data-gold]');
     this.dashBtnEl = hud.querySelector('[data-dash-btn]');
     this.dashLabelEl = hud.querySelector('[data-dash-label]');
     this.bannerEl = hud.querySelector('[data-banner]');
@@ -1538,6 +1796,7 @@ export class UIManager {
     }
     if (this.killsEl) this.killsEl.textContent = `${snap.kills}`;
     if (this.soulsEl) this.soulsEl.textContent = `${snap.souls}`;
+    if (this.goldEl) this.goldEl.textContent = `${(snap.gold ?? 0).toLocaleString('pt-BR')}`;
 
     if (this.dashBtnEl) {
       const pct = Math.round(snap.dashReadyRatio * 100);
@@ -1664,7 +1923,7 @@ export class UIManager {
     `;
 
     const list = document.createElement('div');
-    list.className = 'upgrade-list';
+    list.className = `upgrade-list ${choices.length === 2 ? 'two-choices' : ''}`;
 
     const selectChoice = (choice: UpgradeChoice) => {
       this.clearKeyPickHandler();
@@ -1815,7 +2074,7 @@ export class UIManager {
           <div class="stat-pill">Tempo: <strong>${formatClock(summary.elapsedSeconds)} / 40:00</strong></div>
           <div class="stat-pill">Nível: <strong>${summary.level}</strong></div>
           <div class="stat-pill">Abates: <strong>${summary.kills}</strong></div>
-          <div class="stat-pill">Almas: <strong>${summary.souls}</strong></div>
+          <div class="stat-pill">Almas: <strong>${summary.souls}</strong> · 🪙 Ouro: <strong style="color:#ffd166">+${(summary.gold ?? 0).toLocaleString('pt-BR')}</strong></div>
         </div>
 
         <div style="display:flex; gap:10px; justify-content:center; flex-wrap:wrap">
@@ -1877,7 +2136,7 @@ export class UIManager {
           <div class="stat-pill">Tempo: <strong>${formatClock(summary.elapsedSeconds)} / 40:00</strong></div>
           <div class="stat-pill">Nível: <strong>${summary.level}</strong></div>
           <div class="stat-pill">Abates: <strong>${summary.kills}</strong></div>
-          <div class="stat-pill">Almas: <strong>${summary.souls}</strong></div>
+          <div class="stat-pill">Almas: <strong>${summary.souls}</strong> · 🪙 Ouro: <strong style="color:#ffd166">+${(summary.gold ?? 0).toLocaleString('pt-BR')}</strong></div>
         </div>
 
         <div style="display:flex; flex-direction:column; gap:10px">
@@ -1929,9 +2188,10 @@ export class UIManager {
             <span>${dateStr}</span>
           </div>
           <div class="save-slot-stats">
-            <span>Almas: <strong>${data.totalSouls}</strong></span>
-            <span>Armas: <strong>${data.unlockedWeapons.length}/9</strong></span>
-            <span>Fases: <strong>${data.clearedStages.length}/7</strong></span>
+            <span>🪙 Ouro: <strong style="color:#ffd166">${(data.totalGold ?? 0).toLocaleString('pt-BR')}</strong></span>
+            <span>✦ Almas: <strong>${data.totalSouls}</strong></span>
+            <span>⚔ Armas: <strong>${data.unlockedWeapons.length}/9</strong></span>
+            <span>🏪 Excl: <strong>${(data.purchasedExclusiveWeapons ?? []).length}/10</strong></span>
           </div>
           <div class="save-slot-run">Vigília: ${runInfo}</div>
         </button>

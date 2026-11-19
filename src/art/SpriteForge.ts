@@ -1,5 +1,12 @@
 import Phaser from 'phaser';
-import { BaseWeaponId, EnemyKind, HERO_ORDER, StageDefinition } from '../data/loreData';
+import {
+  BaseWeaponId,
+  ENEMIES,
+  EnemyKind,
+  ExclusiveWeaponId,
+  HERO_ORDER,
+  StageDefinition,
+} from '../data/loreData';
 
 function makeCanvas(width: number, height: number): {
   canvas: HTMLCanvasElement;
@@ -47,6 +54,23 @@ const REGULAR_ENEMIES: EnemyKind[] = [
   'ash_wraith',
   'inquisitor',
   'abyssal_worm',
+  // 4 New 96x96 Blender 12-frame Tactical / Ranged / Melee Enemies
+  'skeleton_archer',
+  'blood_mage',
+  'vampire_knight',
+  'obsidian_brute',
+];
+
+const SIEGE_ENEMIES: EnemyKind[] = ['catapult'];
+
+const SUBBOSS_ENEMIES: EnemyKind[] = [
+  'subboss_wight_lord',
+  'subboss_blood_baron',
+  'subboss_iron_warden',
+  'subboss_ash_titan',
+  'subboss_plague_archon',
+  'subboss_eclipse_templar',
+  'subboss_abyss_behemoth',
 ];
 
 const BOSS_ENEMIES: EnemyKind[] = [
@@ -89,6 +113,7 @@ const STATIC_ENV_ASSETS = [
   // Pickups
   'pickup_blood_chalice',
   'pickup_astral_magnet',
+  'pickup_gold_coin',
 ] as const;
 
 export interface StageEnvCatalog {
@@ -120,6 +145,26 @@ export function preloadAllSpriteAssets(scene: Phaser.Scene): void {
     }
   }
 
+  for (const kind of SIEGE_ENEMIES) {
+    const key = `enemy_${kind}`;
+    if (!scene.textures.exists(key)) {
+      scene.load.spritesheet(key, `./art/sprites/${key}.webp`, {
+        frameWidth: 112,
+        frameHeight: 112,
+      });
+    }
+  }
+
+  for (const kind of SUBBOSS_ENEMIES) {
+    const key = `enemy_${kind}`;
+    if (!scene.textures.exists(key)) {
+      scene.load.spritesheet(key, `./art/sprites/${key}.webp`, {
+        frameWidth: 128,
+        frameHeight: 128,
+      });
+    }
+  }
+
   for (const kind of BOSS_ENEMIES) {
     const key = `enemy_${kind}`;
     if (!scene.textures.exists(key)) {
@@ -147,7 +192,19 @@ export function preloadAllSpriteAssets(scene: Phaser.Scene): void {
     'flask',
     'cross',
   ];
-  for (const wId of baseWeapons) {
+  const exclusiveWeapons: ExclusiveWeaponId[] = [
+    'crimson_katana',
+    'frost_lance',
+    'soul_grimoire',
+    'solar_chakram',
+    'abyssal_meteor',
+    'blood_scythe',
+    'tempest_bow',
+    'seraphic_beam',
+    'void_singularity',
+    'eclipse_dragon',
+  ];
+  for (const wId of [...baseWeapons, ...exclusiveWeapons]) {
     const texKey = `weapon_icon_${wId}`;
     if (!scene.textures.exists(texKey)) {
       scene.load.image(texKey, `./art/icons/${wId}.webp`);
@@ -421,23 +478,39 @@ export function forgeAllTexturesAndAnims(scene: Phaser.Scene): void {
     }
   }
 
-  // 8-frame Articulated Walk / Wing-Flap for all 20 Regular Enemies!
-  for (const kind of REGULAR_ENEMIES) {
+  // 8-frame Articulated Walk/Roll + 4-frame Attack (where available) for ALL Enemies, Siege & Sub-Bosses!
+  const allNonBossEnemies: EnemyKind[] = [
+    ...REGULAR_ENEMIES,
+    ...SIEGE_ENEMIES,
+    ...SUBBOSS_ENEMIES,
+  ];
+  for (const kind of allNonBossEnemies) {
     const key = `enemy_${kind}`;
-    if (scene.textures.exists(key) && !scene.anims.exists(`${key}_move`)) {
+    if (!scene.textures.exists(key)) continue;
+    if (!scene.anims.exists(`${key}_move`)) {
       scene.anims.create({
         key: `${key}_move`,
         frames: scene.anims.generateFrameNumbers(key, { start: 0, end: 7 }),
         frameRate:
           kind === 'bat' ||
-            kind === 'mist_steed' ||
-            kind === 'magma_imp' ||
-            kind === 'gargoyle' ||
-            kind === 'ash_wraith' ||
-            kind === 'bone_crawler'
+          kind === 'mist_steed' ||
+          kind === 'magma_imp' ||
+          kind === 'gargoyle' ||
+          kind === 'ash_wraith' ||
+          kind === 'bone_crawler'
             ? 14
-            : 10,
+            : kind === 'catapult'
+              ? 8
+              : 10,
         repeat: -1,
+      });
+    }
+    if (ENEMIES[kind].hasAttackAnim && !scene.anims.exists(`${key}_attack`)) {
+      scene.anims.create({
+        key: `${key}_attack`,
+        frames: scene.anims.generateFrameNumbers(key, { start: 8, end: 11 }),
+        frameRate: kind === 'catapult' ? 9 : 13,
+        repeat: 0,
       });
     }
   }
@@ -605,15 +678,24 @@ export function forgeAllTexturesAndAnims(scene: Phaser.Scene): void {
     }
   });
 
-  // 8-frame Articulated Walk / Wing-Flap for all 7 Bosses!
+  // 8-frame Articulated Walk / Wing-Flap + 4-frame Attack (for weaponed bosses) for all 7 Bosses!
   for (const kind of BOSS_ENEMIES) {
     const key = `enemy_${kind}`;
-    if (scene.textures.exists(key) && !scene.anims.exists(`${key}_move`)) {
+    if (!scene.textures.exists(key)) continue;
+    if (!scene.anims.exists(`${key}_move`)) {
       scene.anims.create({
         key: `${key}_move`,
         frames: scene.anims.generateFrameNumbers(key, { start: 0, end: 7 }),
         frameRate: 10,
         repeat: -1,
+      });
+    }
+    if (ENEMIES[kind].hasAttackAnim && !scene.anims.exists(`${key}_attack`)) {
+      scene.anims.create({
+        key: `${key}_attack`,
+        frames: scene.anims.generateFrameNumbers(key, { start: 8, end: 11 }),
+        frameRate: 12,
+        repeat: 0,
       });
     }
   }
@@ -1045,5 +1127,285 @@ export function forgeAllTexturesAndAnims(scene: Phaser.Scene): void {
       ctx.closePath();
       ctx.fill();
     }
+  });
+
+  // === ENEMY PROJECTILES & TELEGRAPH VFX ===
+  registerSingle(scene, 'vfx_enemy_arrow', 38, 12, (ctx, w, h) => {
+    const cy = h / 2;
+    // Crimson feather fletching
+    ctx.fillStyle = '#ff4d6d';
+    ctx.beginPath();
+    ctx.moveTo(2, cy - 4);
+    ctx.lineTo(11, cy);
+    ctx.lineTo(2, cy + 4);
+    ctx.closePath();
+    ctx.fill();
+    // Bone/wood shaft
+    ctx.strokeStyle = '#efe0c8';
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    ctx.moveTo(5, cy);
+    ctx.lineTo(w - 9, cy);
+    ctx.stroke();
+    // Glowing steel arrowhead
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = '#ff2a55';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(w - 2, cy);
+    ctx.lineTo(w - 12, cy - 4.5);
+    ctx.lineTo(w - 10, cy);
+    ctx.lineTo(w - 12, cy + 4.5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  });
+
+  registerSingle(scene, 'vfx_enemy_boulder', 36, 36, (ctx, w, h) => {
+    const cx = w / 2;
+    const cy = h / 2;
+    // Outer flame halo
+    const fg = ctx.createRadialGradient(cx, cy, 4, cx, cy, cx - 1);
+    fg.addColorStop(0, 'rgba(255, 220, 120, 0.95)');
+    fg.addColorStop(0.55, 'rgba(255, 100, 25, 0.72)');
+    fg.addColorStop(1, 'rgba(255, 35, 10, 0)');
+    ctx.fillStyle = fg;
+    ctx.beginPath();
+    ctx.arc(cx, cy, cx - 1, 0, Math.PI * 2);
+    ctx.fill();
+    // Jagged dark basalt rock core
+    ctx.fillStyle = '#332826';
+    ctx.strokeStyle = '#ff8c2a';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx - 10, cy - 5);
+    ctx.lineTo(cx - 3, cy - 11);
+    ctx.lineTo(cx + 8, cy - 8);
+    ctx.lineTo(cx + 11, cy + 2);
+    ctx.lineTo(cx + 4, cy + 10);
+    ctx.lineTo(cx - 8, cy + 8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  });
+
+  registerSingle(scene, 'vfx_enemy_orb', 28, 28, (ctx, w, h) => {
+    const cx = w / 2;
+    const cy = h / 2;
+    const g = ctx.createRadialGradient(cx, cy, 2, cx, cy, cx - 1);
+    g.addColorStop(0, '#ffffff');
+    g.addColorStop(0.45, '#ff7597');
+    g.addColorStop(0.8, 'rgba(220, 35, 90, 0.55)');
+    g.addColorStop(1, 'rgba(220, 35, 90, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, cy, cx - 1, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  registerSingle(scene, 'vfx_enemy_shard', 32, 16, (ctx, w, h) => {
+    const cy = h / 2;
+    ctx.fillStyle = '#3e3352';
+    ctx.strokeStyle = '#ff7b9c';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(2, cy);
+    ctx.lineTo(w * 0.55, 2);
+    ctx.lineTo(w - 2, cy);
+    ctx.lineTo(w * 0.55, h - 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  });
+
+  registerSingle(scene, 'vfx_telegraph_ring', 128, 128, (ctx, w, h) => {
+    const cx = w / 2;
+    const cy = h / 2;
+    const g = ctx.createRadialGradient(cx, cy, 8, cx, cy, cx - 4);
+    g.addColorStop(0, 'rgba(255, 50, 75, 0.28)');
+    g.addColorStop(0.75, 'rgba(255, 70, 50, 0.14)');
+    g.addColorStop(1, 'rgba(255, 40, 40, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, cy, cx - 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(255, 95, 75, 0.92)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(cx, cy, cx - 6, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(255, 215, 110, 0.72)';
+    ctx.lineWidth = 1.6;
+    ctx.setLineDash([8, 6]);
+    ctx.beginPath();
+    ctx.arc(cx, cy, cx - 16, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  });
+
+  // === 10 EXCLUSIVE GOLD-SHOP LEGENDARY WEAPON VFX ===
+  registerSingle(scene, 'vfx_katana_slash', 180, 86, (ctx, w, h) => {
+    const grad = ctx.createLinearGradient(8, h / 2, w - 6, h / 2);
+    grad.addColorStop(0, 'rgba(255, 30, 70, 0)');
+    grad.addColorStop(0.32, 'rgba(255, 45, 90, 0.92)');
+    grad.addColorStop(0.78, '#ffccd8');
+    grad.addColorStop(1, '#ffffff');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(8, h * 0.78);
+    ctx.quadraticCurveTo(w * 0.52, -h * 0.08, w - 6, h * 0.48);
+    ctx.quadraticCurveTo(w * 0.56, h * 0.34, 8, h * 0.78);
+    ctx.closePath();
+    ctx.fill();
+  });
+
+  registerSingle(scene, 'vfx_frost_lance', 50, 16, (ctx, w, h) => {
+    const cy = h / 2;
+    const g = ctx.createLinearGradient(0, cy, w, cy);
+    g.addColorStop(0, 'rgba(110, 220, 255, 0.15)');
+    g.addColorStop(0.55, '#6ce5ff');
+    g.addColorStop(1, '#ffffff');
+    ctx.fillStyle = g;
+    ctx.strokeStyle = '#d4fbff';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(2, cy);
+    ctx.lineTo(w * 0.72, 2);
+    ctx.lineTo(w - 2, cy);
+    ctx.lineTo(w * 0.72, h - 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  });
+
+  registerSingle(scene, 'vfx_soul_skull', 32, 32, (ctx, w, h) => {
+    const cx = w / 2;
+    const cy = h / 2;
+    const g = ctx.createRadialGradient(cx, cy, 2, cx, cy, 15);
+    g.addColorStop(0, '#d8fff0');
+    g.addColorStop(0.55, '#2cf5a2');
+    g.addColorStop(1, 'rgba(20, 180, 130, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#072a20';
+    ctx.beginPath();
+    ctx.arc(cx - 4, cy - 2, 2.5, 0, Math.PI * 2);
+    ctx.arc(cx + 4, cy - 2, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  registerSingle(scene, 'vfx_solar_chakram', 46, 46, (ctx, w, h) => {
+    const cx = w / 2;
+    const cy = h / 2;
+    ctx.strokeStyle = '#ffbe3d';
+    ctx.lineWidth = 5.5;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 15, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = '#fff5cc';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 15, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = '#ff8c24';
+    for (let i = 0; i < 6; i++) {
+      const a = (i * Math.PI) / 3;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a) * 16, cy + Math.sin(a) * 16);
+      ctx.lineTo(cx + Math.cos(a + 0.25) * 22, cy + Math.sin(a + 0.25) * 22);
+      ctx.lineTo(cx + Math.cos(a + 0.48) * 16, cy + Math.sin(a + 0.48) * 16);
+      ctx.closePath();
+      ctx.fill();
+    }
+  });
+
+  registerSingle(scene, 'vfx_meteor_rock', 48, 48, (ctx, w, h) => {
+    const cx = w / 2;
+    const cy = h / 2;
+    const g = ctx.createRadialGradient(cx, cy, 4, cx, cy, 22);
+    g.addColorStop(0, '#fff7cc');
+    g.addColorStop(0.45, '#ff7b24');
+    g.addColorStop(0.82, 'rgba(210, 40, 15, 0.7)');
+    g.addColorStop(1, 'rgba(180, 20, 10, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 22, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#2d1a16';
+    ctx.beginPath();
+    ctx.arc(cx, cy, 11, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  registerSingle(scene, 'vfx_storm_arrow', 46, 14, (ctx, w, h) => {
+    const cy = h / 2;
+    ctx.strokeStyle = '#5ce1ff';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(4, cy);
+    ctx.lineTo(w - 8, cy);
+    ctx.stroke();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+    ctx.fillStyle = '#ffe97f';
+    ctx.beginPath();
+    ctx.moveTo(w - 1, cy);
+    ctx.lineTo(w - 13, 2);
+    ctx.lineTo(w - 10, cy);
+    ctx.lineTo(w - 13, h - 2);
+    ctx.closePath();
+    ctx.fill();
+  });
+
+  registerSingle(scene, 'vfx_seraph_beam', 260, 32, (ctx, w, h) => {
+    const cy = h / 2;
+    const vg = ctx.createLinearGradient(0, 0, 0, h);
+    vg.addColorStop(0, 'rgba(255, 220, 90, 0)');
+    vg.addColorStop(0.28, 'rgba(255, 230, 115, 0.85)');
+    vg.addColorStop(0.5, '#ffffff');
+    vg.addColorStop(0.72, 'rgba(255, 230, 115, 0.85)');
+    vg.addColorStop(1, 'rgba(255, 220, 90, 0)');
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.fillRect(0, cy - 3, w, 6);
+  });
+
+  registerSingle(scene, 'vfx_void_orb', 152, 152, (ctx, w, h) => {
+    const cx = w / 2;
+    const cy = h / 2;
+    const g = ctx.createRadialGradient(cx, cy, 8, cx, cy, cx - 4);
+    g.addColorStop(0, 'rgba(10, 4, 24, 0.96)');
+    g.addColorStop(0.35, 'rgba(130, 42, 235, 0.72)');
+    g.addColorStop(0.7, 'rgba(195, 85, 255, 0.34)');
+    g.addColorStop(1, 'rgba(120, 20, 200, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, cy, cx - 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(235, 165, 255, 0.75)';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(cx, cy, cx * 0.56, 0, Math.PI * 1.5);
+    ctx.stroke();
+  });
+
+  registerSingle(scene, 'vfx_dragon_orb', 48, 48, (ctx, w, h) => {
+    const cx = w / 2;
+    const cy = h / 2;
+    const g = ctx.createRadialGradient(cx, cy, 3, cx, cy, 22);
+    g.addColorStop(0, '#fff7cc');
+    g.addColorStop(0.4, '#ff4824');
+    g.addColorStop(0.78, 'rgba(215, 25, 75, 0.55)');
+    g.addColorStop(1, 'rgba(150, 10, 40, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 22, 0, Math.PI * 2);
+    ctx.fill();
   });
 }

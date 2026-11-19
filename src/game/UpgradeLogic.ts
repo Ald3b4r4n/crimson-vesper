@@ -2,12 +2,17 @@ import {
   BaseWeaponId,
   DIFFICULTIES,
   DifficultyId,
+  ENEMIES,
+  EnemyKind,
   EvolvedWeaponId,
+  ExclusiveWeaponId,
+  ForgeableWeaponId,
   getRelicIconUrl,
   getWeaponIconUrl,
   HEROES,
   HeroId,
   HeroStats,
+  HeroUpgradeLevels,
   RELICS,
   RelicId,
   UltimateWeaponId,
@@ -18,7 +23,10 @@ import {
 export const MAX_WEAPON_SLOTS = 6;
 export const MAX_RELIC_SLOTS = 6;
 export const MAX_WEAPON_FORGE_LEVEL = 5;
+export const MAX_HERO_UPGRADE_LEVEL = 5;
 export const WEAPON_FORGE_COSTS = [60, 120, 200, 320, 500] as const;
+export const WEAPON_FORGE_GOLD_COSTS = [400, 850, 1500, 2400, 3800] as const;
+export const HERO_UPGRADE_GOLD_COSTS = [350, 750, 1300, 2100, 3200] as const;
 
 export interface WeaponForgeBonus {
   forgeLevel: number;
@@ -69,6 +77,24 @@ export const ALL_EVOLVED_WEAPONS: EvolvedWeaponId[] = [
   'celestial_blade',
 ];
 
+export const ALL_EXCLUSIVE_WEAPONS: ExclusiveWeaponId[] = [
+  'crimson_katana',
+  'frost_lance',
+  'soul_grimoire',
+  'solar_chakram',
+  'abyssal_meteor',
+  'blood_scythe',
+  'tempest_bow',
+  'seraphic_beam',
+  'void_singularity',
+  'eclipse_dragon',
+];
+
+export const ALL_FORGEABLE_WEAPONS: ForgeableWeaponId[] = [
+  ...ALL_BASE_WEAPONS,
+  ...ALL_EXCLUSIVE_WEAPONS,
+];
+
 export const ALL_RELICS: RelicId[] = [
   'black_heart',
   'empty_tome',
@@ -89,10 +115,13 @@ export interface InventoryState {
   weapons: Partial<Record<WeaponId, number>>;
   relics: Partial<Record<RelicId, number>>;
   souls: number;
+  gold: number;
   ascensionMight?: number;
   ascensionHp?: number;
   unlockedWeapons?: BaseWeaponId[];
-  weaponForge?: Partial<Record<BaseWeaponId, number>>;
+  purchasedExclusiveWeapons?: ExclusiveWeaponId[];
+  heroUpgrades?: HeroUpgradeLevels;
+  weaponForge?: Partial<Record<ForgeableWeaponId, number>>;
 }
 
 export type UpgradeKind = 'weapon' | 'relic' | 'evolution' | 'ultimate' | 'blessing';
@@ -102,7 +131,9 @@ export interface UpgradeChoice {
   kind: UpgradeKind;
   weaponId?: WeaponId;
   relicId?: RelicId;
-  blessingType?: 'might' | 'vitality' | 'souls';
+  blessingType?: 'might' | 'vitality' | 'souls' | 'gold' | 'heal';
+  goldAmount?: number;
+  healPercent?: number;
   iconUrl: string;
   title: string;
   subtitle: string;
@@ -125,7 +156,9 @@ export function xpRequiredForLevel(level: number): number {
 export function createInitialInventory(
   heroId: HeroId,
   unlockedWeapons?: BaseWeaponId[],
-  weaponForge?: Partial<Record<BaseWeaponId, number>>
+  weaponForge?: Partial<Record<ForgeableWeaponId, number>>,
+  purchasedExclusiveWeapons?: ExclusiveWeaponId[],
+  heroUpgrades?: HeroUpgradeLevels
 ): InventoryState {
   const hero = HEROES[heroId];
   const startForge = weaponForge?.[hero.startingWeapon] ?? 0;
@@ -140,12 +173,42 @@ export function createInitialInventory(
     },
     relics: {},
     souls: 0,
+    gold: 0,
     ascensionMight: 0,
     ascensionHp: 0,
     unlockedWeapons: unlockedWeapons
       ? Array.from(new Set([...unlockedWeapons, hero.startingWeapon]))
       : undefined,
+    purchasedExclusiveWeapons: purchasedExclusiveWeapons ? [...purchasedExclusiveWeapons] : [],
+    heroUpgrades: heroUpgrades ? { ...heroUpgrades } : undefined,
     weaponForge: weaponForge ? { ...weaponForge } : undefined,
+  };
+}
+
+export function isExclusiveWeaponUnlocked(inv: InventoryState, exId: ExclusiveWeaponId): boolean {
+  if ((inv.weapons[exId] ?? 0) > 0) return true;
+  return Boolean(inv.purchasedExclusiveWeapons?.includes(exId));
+}
+
+export function computeHeroWithUpgrades(
+  heroId: HeroId,
+  upgrades?: HeroUpgradeLevels
+): HeroStats {
+  const base = HEROES[heroId].baseStats;
+  const vitLv = Math.max(0, Math.min(MAX_HERO_UPGRADE_LEVEL, Math.floor(upgrades?.vitality ?? 0)));
+  const mightLv = Math.max(0, Math.min(MAX_HERO_UPGRADE_LEVEL, Math.floor(upgrades?.might ?? 0)));
+  const agiLv = Math.max(0, Math.min(MAX_HERO_UPGRADE_LEVEL, Math.floor(upgrades?.agility ?? 0)));
+  const fortLv = Math.max(0, Math.min(MAX_HERO_UPGRADE_LEVEL, Math.floor(upgrades?.fortitude ?? 0)));
+
+  return {
+    ...base,
+    maxHp: Math.round(base.maxHp + vitLv * 18),
+    regen: base.regen + vitLv * 0.18,
+    might: base.might + mightLv * 0.07,
+    moveSpeed: Math.round(base.moveSpeed + agiLv * 8),
+    cooldown: Math.max(0.45, base.cooldown * Math.pow(0.975, agiLv)),
+    armor: Number((base.armor + fortLv * 0.8).toFixed(2)),
+    critChance: Math.min(0.85, base.critChance + fortLv * 0.025),
   };
 }
 
@@ -169,7 +232,7 @@ export function isRelicUnlocked(inv: InventoryState, rId: RelicId): boolean {
 }
 
 export function computeEffectiveStats(inv: InventoryState): HeroStats {
-  const base = HEROES[inv.heroId].baseStats;
+  const base = computeHeroWithUpgrades(inv.heroId, inv.heroUpgrades);
   const heartLv = inv.relics.black_heart ?? 0;
   const tomeLv = inv.relics.empty_tome ?? 0;
   const sealLv = inv.relics.amber_seal ?? 0;
@@ -396,6 +459,39 @@ export function buildUpgradeChoices(
     });
   }
 
+  // Purchased Exclusive Gold-Shop Legendary Weapons (Lv.1 -> Lv.5 + Out-of-Game Forge scaling)
+  for (const exId of ALL_EXCLUSIVE_WEAPONS) {
+    if (!isExclusiveWeaponUnlocked(inv, exId)) continue;
+    const def = WEAPONS[exId];
+    const current = inv.weapons[exId] ?? 0;
+    if (current >= def.maxLevel) continue;
+    if (current === 0 && ownedWeaponCount >= MAX_WEAPON_SLOTS) continue;
+
+    const forgeBonus = computeWeaponForgeBonus(inv.weaponForge?.[exId] ?? 0);
+    const next =
+      current === 0 ? Math.min(def.maxLevel, forgeBonus.startingLevel) : current + 1;
+
+    pool.push({
+      uid: `weapon:${exId}:${next}`,
+      kind: 'weapon',
+      weaponId: exId,
+      iconUrl: getWeaponIconUrl(exId),
+      title: def.name,
+      subtitle:
+        current === 0
+          ? next > 1
+            ? `✦ Arma Exclusiva (Forjada Nv.${next})`
+            : '✦ Arma Exclusiva de Ouro'
+          : `✦ Exclusiva · Grau ${current} → ${next}`,
+      description: def.descriptions[next - 1] ?? def.tagline,
+      currentLevel: current,
+      nextLevel: next,
+      maxLevel: def.maxLevel,
+      accentColor: def.iconColor,
+      synergyHint: '✦ Arma Lendária do Arsenal de Ouro',
+    });
+  }
+
   for (const rId of ALL_RELICS) {
     const def = RELICS[rId];
     const current = inv.relics[rId] ?? 0;
@@ -432,11 +528,49 @@ export function buildUpgradeChoices(
     });
   }
 
+  const goldReward = Math.round(350 + inv.level * 15);
+  const maxBuildChoices: UpgradeChoice[] = [
+    {
+      uid: 'blessing:gold',
+      kind: 'blessing',
+      blessingType: 'gold',
+      goldAmount: goldReward,
+      iconUrl: './art/sprites/pickup_gold_coin.webp',
+      title: `Bolsa de Ouro (+${goldReward})`,
+      subtitle: 'Arsenal no Máximo · Fortuna',
+      description: `Recebe +${goldReward} Moedas de Ouro para comprar Armas Exclusivas, forjar armas e evoluir heróis.`,
+      currentLevel: 0,
+      nextLevel: 1,
+      maxLevel: 99,
+      accentColor: '#ffd166',
+    },
+    {
+      uid: 'blessing:heal',
+      kind: 'blessing',
+      blessingType: 'heal',
+      healPercent: 0.45,
+      iconUrl: './art/sprites/pickup_blood_chalice.webp',
+      title: 'Cálice da Vitalidade',
+      subtitle: 'Arsenal no Máximo · Cura',
+      description: 'Restaura imediatamente 45% da sua Vida Máxima para sustentar o combate.',
+      currentLevel: 0,
+      nextLevel: 1,
+      maxLevel: 99,
+      accentColor: '#ff4d6d',
+    },
+  ];
+
+  // When all equipped/available weapons & relics are completely maxed, offer the exact 2 player choices: Gold OR Heal!
+  if (pool.length === 0) {
+    return maxBuildChoices;
+  }
+
   const weighted = pool.map((choice) => {
     let weight = 1.0;
     if (choice.kind === 'ultimate') weight = 4.8;
     else {
       if (choice.currentLevel > 0) weight += 0.9;
+      if (choice.weaponId && WEAPONS[choice.weaponId].isExclusive) weight += 0.55;
       if (choice.synergyHint?.startsWith('★') || choice.synergyHint?.startsWith('👑')) weight += 1.45;
     }
     return { choice, sortKey: Math.pow(rng(), 1 / weight) };
@@ -445,52 +579,9 @@ export function buildUpgradeChoices(
 
   const selected = weighted.slice(0, count).map((w) => w.choice);
 
-  // Limit Break / Ascension choices once build is maxed!
-  const ascensions: UpgradeChoice[] = [
-    {
-      uid: 'blessing:might',
-      kind: 'blessing',
-      blessingType: 'might',
-      iconUrl: getRelicIconUrl('amber_seal'),
-      title: 'Ascensão Solar',
-      subtitle: 'Maestria Infinita',
-      description: 'Aumenta permanentemente o Poder de Dano de todas as armas em +10%.',
-      currentLevel: 0,
-      nextLevel: 1,
-      maxLevel: 99,
-      accentColor: '#ffe79e',
-    },
-    {
-      uid: 'blessing:vitality',
-      kind: 'blessing',
-      blessingType: 'vitality',
-      iconUrl: getRelicIconUrl('black_heart'),
-      title: 'Cálice de Cinza Pura',
-      subtitle: 'Bênção Perpétua',
-      description: '+20 Vida Máxima permanente e restaura 45 Pontos de Vida.',
-      currentLevel: 0,
-      nextLevel: 1,
-      maxLevel: 99,
-      accentColor: '#ff4d6d',
-    },
-    {
-      uid: 'blessing:souls',
-      kind: 'blessing',
-      blessingType: 'souls',
-      iconUrl: getRelicIconUrl('duplicator_ring'),
-      title: 'Tributo Astral',
-      subtitle: 'Riqueza do Conclave',
-      description: 'Restaura 25 PV e concede +45 Estilhaços de Alma.',
-      currentLevel: 0,
-      nextLevel: 1,
-      maxLevel: 99,
-      accentColor: '#7ce8ff',
-    },
-  ];
-
-  let ascIdx = 0;
-  while (selected.length < count && ascIdx < ascensions.length) {
-    selected.push(ascensions[ascIdx++]);
+  let fbIdx = 0;
+  while (selected.length < count && fbIdx < maxBuildChoices.length) {
+    selected.push(maxBuildChoices[fbIdx++]);
   }
 
   return selected;
@@ -499,16 +590,17 @@ export function buildUpgradeChoices(
 export function applyUpgradeChoice(
   inv: InventoryState,
   choice: UpgradeChoice
-): { healedHp: number; evolvedWeapon?: WeaponId } {
+): { healedHp: number; evolvedWeapon?: WeaponId; goldGained?: number } {
   let healedHp = 0;
   let evolvedWeapon: WeaponId | undefined;
+  let goldGained = 0;
 
   if (choice.kind === 'weapon' && choice.weaponId) {
     const wId = choice.weaponId;
     const prevLv = inv.weapons[wId] ?? 0;
     const wDef = WEAPONS[wId];
     if (prevLv === 0 && !wDef.isEvolved && !wDef.isUltimate) {
-      const forgeBonus = computeWeaponForgeBonus(inv.weaponForge?.[wId as BaseWeaponId] ?? 0);
+      const forgeBonus = computeWeaponForgeBonus(inv.weaponForge?.[wId as ForgeableWeaponId] ?? 0);
       inv.weapons[wId] = Math.min(wDef.maxLevel, Math.max(choice.nextLevel, forgeBonus.startingLevel));
     } else {
       inv.weapons[wId] = choice.nextLevel;
@@ -535,7 +627,14 @@ export function applyUpgradeChoice(
     evolvedWeapon = choice.weaponId;
     healedHp += 50;
   } else if (choice.kind === 'blessing') {
-    if (choice.blessingType === 'might') {
+    if (choice.blessingType === 'gold') {
+      const amt = choice.goldAmount ?? Math.round(350 + inv.level * 15);
+      inv.gold = (inv.gold ?? 0) + amt;
+      goldGained = amt;
+    } else if (choice.blessingType === 'heal') {
+      const eff = computeEffectiveStats(inv);
+      healedHp += Math.max(25, Math.round(eff.maxHp * (choice.healPercent ?? 0.45)));
+    } else if (choice.blessingType === 'might') {
       inv.ascensionMight = (inv.ascensionMight ?? 0) + 0.1;
     } else if (choice.blessingType === 'vitality') {
       inv.ascensionHp = (inv.ascensionHp ?? 0) + 20;
@@ -546,7 +645,7 @@ export function applyUpgradeChoice(
     }
   }
 
-  return { healedHp, evolvedWeapon };
+  return { healedHp, evolvedWeapon, goldGained };
 }
 
 export function resolveRelicChest(
@@ -633,6 +732,8 @@ export function computePlayerPowerPressure(inv: InventoryState): number {
     } else if (def.isEvolved) {
       evolvedCount += 1;
       totalWeaponLevels += 5 + lv;
+    } else if (def.isExclusive) {
+      totalWeaponLevels += Math.round(lv * 1.25);
     } else {
       totalWeaponLevels += lv;
     }
@@ -702,4 +803,66 @@ export function computeIntraMatchEscalation(
     packSize,
     powerPressure,
   };
+}
+
+/**
+ * Anti-bullet-hell balanced spawner:
+ * - Horde surges (circle waves) are STRICTLY melee (ZERO pure-ranged waves!).
+ * - Normal spawns cap active ranged enemies (mages, archers, catapults, gargoyles)
+ *   to <= 24% of active units AND a hard simultaneous cap + catapult cap so combat
+ *   remains tactical, readable, and dodgeable at all times.
+ */
+export function pickBalancedSpawnKind(
+  stagePool: EnemyKind[],
+  activeKinds: EnemyKind[],
+  difficultyId: DifficultyId,
+  isHordeSurge = false,
+  rng: () => number = Math.random
+): EnemyKind {
+  const meleePool = stagePool.filter((k) => !ENEMIES[k].isRanged);
+  const pickFrom = (arr: EnemyKind[]) => arr[Math.floor(rng() * arr.length)] ?? stagePool[0];
+
+  if (meleePool.length === 0) {
+    return pickFrom(stagePool);
+  }
+
+  // Rule 1: NEVER spawn a horde surge composed of ranged units!
+  if (isHordeSurge) {
+    return pickFrom(meleePool);
+  }
+
+  const candidate = pickFrom(stagePool);
+  if (!ENEMIES[candidate].isRanged) {
+    return candidate;
+  }
+
+  const maxRangedByDiff: Record<DifficultyId, number> = {
+    normal: 6,
+    hard: 8,
+    epic: 10,
+    holi_shit: 12,
+  };
+  const maxCatapults = difficultyId === 'epic' || difficultyId === 'holi_shit' ? 3 : 2;
+  const maxRanged = maxRangedByDiff[difficultyId] ?? 6;
+
+  let activeRanged = 0;
+  let activeCatapults = 0;
+  for (const k of activeKinds) {
+    if (ENEMIES[k]?.isRanged) activeRanged += 1;
+    if (k === 'catapult') activeCatapults += 1;
+  }
+
+  const totalActive = activeKinds.length;
+  const ratioBlocked =
+    totalActive < 6 ? activeRanged >= 1 : activeRanged / Math.max(1, totalActive) >= 0.24;
+
+  if (
+    activeRanged >= maxRanged ||
+    ratioBlocked ||
+    (candidate === 'catapult' && activeCatapults >= maxCatapults)
+  ) {
+    return pickFrom(meleePool);
+  }
+
+  return candidate;
 }

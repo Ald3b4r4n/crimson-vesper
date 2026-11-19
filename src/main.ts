@@ -1,5 +1,13 @@
 import Phaser from 'phaser';
-import { BaseWeaponId, DifficultyId, HeroId, StageId } from './data/loreData';
+import {
+  BaseWeaponId,
+  DifficultyId,
+  ExclusiveWeaponId,
+  ForgeableWeaponId,
+  HeroId,
+  HeroUpgradeLevels,
+  StageId,
+} from './data/loreData';
 import { ArenaCallbacks, ArenaScene, SavedActiveRun } from './scenes/ArenaScene';
 import './styles.css';
 import { UIManager } from './ui/UIManager';
@@ -48,7 +56,9 @@ new UIManager(uiLayer, viewport, {
     callbacks: ArenaCallbacks,
     metaProgression?: {
       unlockedWeapons: BaseWeaponId[];
-      weaponForge: Partial<Record<BaseWeaponId, number>>;
+      purchasedExclusiveWeapons?: ExclusiveWeaponId[];
+      heroUpgrades?: HeroUpgradeLevels;
+      weaponForge: Partial<Record<ForgeableWeaponId, number>>;
     },
     resumeCheckpoint?: SavedActiveRun
   ) => {

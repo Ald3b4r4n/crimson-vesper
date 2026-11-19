@@ -16,9 +16,13 @@ import {
   ENEMIES,
   EnemyDefinition,
   EnemyKind,
+  EnemyProjectileKind,
+  ExclusiveWeaponId,
+  ForgeableWeaponId,
   HEROES,
   HeroId,
   HeroStats,
+  HeroUpgradeLevels,
   RELICS,
   StageDefinition,
   StageId,
@@ -36,6 +40,7 @@ import {
   IntraMatchEscalation,
   InventoryState,
   MAX_WEAPON_SLOTS,
+  pickBalancedSpawnKind,
   resolveRelicChest,
   UpgradeChoice,
   WeaponForgeBonus,
@@ -52,6 +57,7 @@ export interface HudSnapshot {
   stageDurationSeconds: number;
   kills: number;
   souls: number;
+  gold: number;
   dashReadyRatio: number;
   dashCooldownRemaining: number;
   stageName: string;
@@ -86,6 +92,7 @@ export interface RunSummary {
   level: number;
   kills: number;
   souls: number;
+  gold: number;
   inventory: InventoryState;
 }
 
@@ -149,6 +156,9 @@ interface EnemyRuntime {
   isElite: boolean;
   burnTimer: number;
   burnTickTimer: number;
+  chillTimer: number;
+  attackAnimTimer: number;
+  attackCooldown: number;
   spawnProgress: number;
   hitFlashTimer: number;
   squashTimer: number;
@@ -158,6 +168,62 @@ interface EnemyRuntime {
   bossCharging: boolean;
   bossChargeDirX: number;
   bossChargeDirY: number;
+}
+
+interface EnemyProjectileRuntime {
+  kind: EnemyProjectileKind;
+  sprite: Phaser.GameObjects.Image;
+  shadow?: Phaser.GameObjects.Image;
+  telegraph?: Phaser.GameObjects.Image;
+  x: number;
+  y: number;
+  startX: number;
+  startY: number;
+  targetX: number;
+  targetY: number;
+  vx: number;
+  vy: number;
+  damage: number;
+  radius: number;
+  aoeRadius: number;
+  life: number;
+  flightDuration: number;
+  elapsed: number;
+  isLobbed: boolean;
+  spinSpeed: number;
+}
+
+interface GoldCoinRuntime {
+  sprite: Phaser.GameObjects.Image;
+  x: number;
+  y: number;
+  goldValue: number;
+  magnetized: boolean;
+  magnetTime: number;
+  bobSeed: number;
+}
+
+interface VoidWellRuntime {
+  sprite: Phaser.GameObjects.Image;
+  x: number;
+  y: number;
+  radius: number;
+  damage: number;
+  life: number;
+  maxLife: number;
+  tickTimer: number;
+}
+
+interface SeraphBeamRuntime {
+  sprite: Phaser.GameObjects.Image;
+  angle: number;
+  angularSpeed: number;
+  length: number;
+  halfWidth: number;
+  damage: number;
+  life: number;
+  maxLife: number;
+  tickTimer: number;
 }
 
 interface ProjectileRuntime {
@@ -177,6 +243,15 @@ interface ProjectileRuntime {
   crit: boolean;
   lifeSteal: number;
   aoeBurstRadius?: number;
+  aoeBurstColor?: number;
+  chillDuration?: number;
+  homingStrength?: number;
+  bouncesRemaining?: number;
+  chainShockRadius?: number;
+  waveAmp?: number;
+  waveFreq?: number;
+  wavePhase?: number;
+  trailFire?: boolean;
   hitIds: Set<number>;
 }
 
@@ -307,7 +382,9 @@ export class ArenaScene extends Phaser.Scene {
 
   // Stage-Hidden Weapon Altar & Meta Progression
   private metaUnlockedWeapons: BaseWeaponId[] = [...DEFAULT_UNLOCKED_WEAPONS];
-  private metaWeaponForge: Partial<Record<BaseWeaponId, number>> = {};
+  private metaPurchasedExclusiveWeapons: ExclusiveWeaponId[] = [];
+  private metaHeroUpgrades: HeroUpgradeLevels = {};
+  private metaWeaponForge: Partial<Record<ForgeableWeaponId, number>> = {};
   private resumeCheckpoint?: SavedActiveRun;
   private autoSaveTimer = 0;
   private hiddenAltarClaimed = false;
@@ -346,9 +423,13 @@ export class ArenaScene extends Phaser.Scene {
   private nextEnemyId = 1;
   private nextBreakableId = 1;
   private enemies: EnemyRuntime[] = [];
+  private enemyProjectiles: EnemyProjectileRuntime[] = [];
   private projectiles: ProjectileRuntime[] = [];
   private firePools: FirePoolRuntime[] = [];
+  private voidWells: VoidWellRuntime[] = [];
+  private seraphBeams: SeraphBeamRuntime[] = [];
   private gems: GemRuntime[] = [];
+  private goldCoins: GoldCoinRuntime[] = [];
   private chests: ChestRuntime[] = [];
   private orbitalSprites: Phaser.GameObjects.Image[] = [];
   private orbitalAngle = 0;
@@ -390,7 +471,9 @@ export class ArenaScene extends Phaser.Scene {
     callbacks: ArenaCallbacks,
     metaProgression?: {
       unlockedWeapons: BaseWeaponId[];
-      weaponForge: Partial<Record<BaseWeaponId, number>>;
+      purchasedExclusiveWeapons?: ExclusiveWeaponId[];
+      heroUpgrades?: HeroUpgradeLevels;
+      weaponForge: Partial<Record<ForgeableWeaponId, number>>;
     },
     resumeCheckpoint?: SavedActiveRun
   ): void {
@@ -402,6 +485,10 @@ export class ArenaScene extends Phaser.Scene {
     this.metaUnlockedWeapons = metaProgression?.unlockedWeapons?.length
       ? [...metaProgression.unlockedWeapons]
       : [...DEFAULT_UNLOCKED_WEAPONS];
+    this.metaPurchasedExclusiveWeapons = metaProgression?.purchasedExclusiveWeapons?.length
+      ? [...metaProgression.purchasedExclusiveWeapons]
+      : [];
+    this.metaHeroUpgrades = metaProgression?.heroUpgrades ? { ...metaProgression.heroUpgrades } : {};
     this.metaWeaponForge = metaProgression?.weaponForge ? { ...metaProgression.weaponForge } : {};
     this.resumeCheckpoint = resumeCheckpoint;
   }
@@ -410,9 +497,14 @@ export class ArenaScene extends Phaser.Scene {
     if (!this.inventory || this.runEnded || this.hp <= 0) return null;
     const clonedInv: InventoryState = {
       ...this.inventory,
+      gold: this.inventory.gold ?? 0,
       weapons: { ...this.inventory.weapons },
       relics: { ...this.inventory.relics },
       unlockedWeapons: this.inventory.unlockedWeapons ? [...this.inventory.unlockedWeapons] : undefined,
+      purchasedExclusiveWeapons: this.inventory.purchasedExclusiveWeapons
+        ? [...this.inventory.purchasedExclusiveWeapons]
+        : undefined,
+      heroUpgrades: this.inventory.heroUpgrades ? { ...this.inventory.heroUpgrades } : undefined,
       weaponForge: this.inventory.weaponForge ? { ...this.inventory.weaponForge } : undefined,
     };
     return {
@@ -497,9 +589,13 @@ export class ArenaScene extends Phaser.Scene {
     this.envCatalog = forgeStageTextures(this, this.stageDef);
 
     this.enemies = [];
+    this.enemyProjectiles = [];
     this.projectiles = [];
     this.firePools = [];
+    this.voidWells = [];
+    this.seraphBeams = [];
     this.gems = [];
+    this.goldCoins = [];
     this.chests = [];
     this.orbitalSprites = [];
     this.ruins = [];
@@ -531,6 +627,7 @@ export class ArenaScene extends Phaser.Scene {
     if (resumed) {
       this.inventory = {
         ...resumed.inventory,
+        gold: resumed.inventory.gold ?? 0,
         heroId: this.heroId,
         weapons: { ...resumed.inventory.weapons },
         relics: { ...resumed.inventory.relics },
@@ -540,6 +637,13 @@ export class ArenaScene extends Phaser.Scene {
             ...this.metaUnlockedWeapons,
           ])
         ),
+        purchasedExclusiveWeapons: Array.from(
+          new Set([
+            ...(resumed.inventory.purchasedExclusiveWeapons ?? []),
+            ...this.metaPurchasedExclusiveWeapons,
+          ])
+        ),
+        heroUpgrades: { ...this.metaHeroUpgrades },
         weaponForge: { ...this.metaWeaponForge },
       };
       this.stats = computeEffectiveStats(this.inventory);
@@ -554,7 +658,9 @@ export class ArenaScene extends Phaser.Scene {
       this.inventory = createInitialInventory(
         this.heroId,
         this.metaUnlockedWeapons,
-        this.metaWeaponForge
+        this.metaWeaponForge,
+        this.metaPurchasedExclusiveWeapons,
+        this.metaHeroUpgrades
       );
       this.stats = computeEffectiveStats(this.inventory);
       this.hp = this.stats.maxHp;
@@ -595,6 +701,16 @@ export class ArenaScene extends Phaser.Scene {
       daggers: 0.2,
       flask: 0.7,
       cross: 0.35,
+      crimson_katana: 0.22,
+      frost_lance: 0.3,
+      soul_grimoire: 0.4,
+      solar_chakram: 0.5,
+      abyssal_meteor: 0.85,
+      blood_scythe: 0.45,
+      tempest_bow: 0.35,
+      seraphic_beam: 0.9,
+      void_singularity: 1.1,
+      eclipse_dragon: 0.95,
     };
 
     const { width, height } = this.scale;
@@ -1039,8 +1155,10 @@ export class ArenaScene extends Phaser.Scene {
     this.updateSpatialGrid();
     this.updateWeapons(time, dt);
     this.updateFirePools(time, dt);
+    this.updateVoidWellsAndBeams(time, dt);
     this.updateFirePhysics(time, dt);
     this.updateProjectiles(dt);
+    this.updateEnemyProjectiles(dt);
     this.updateEnemies(time, dt);
     this.updateBreakablesAndPickups(time, dt);
     this.updateGemsAndChests(time, dt);
@@ -1561,7 +1679,11 @@ export class ArenaScene extends Phaser.Scene {
       this.spawnLootPickup('chalice', b.x, b.y);
     } else if (roll < chaliceChance + 0.08) {
       this.spawnLootPickup('magnet', b.x, b.y);
-    } else if (roll < 0.42) {
+    } else if (roll < 0.45) {
+      const goldVal = Math.round(Phaser.Math.Between(18, 36) * this.difficultyDef.soulMult);
+      this.spawnGoldCoin(b.x, b.y, goldVal);
+      this.spawnXpGem(b.x + 8, b.y, 6, 'amber');
+    } else if (roll < 0.68) {
       this.inventory.souls += Math.round(12 * this.difficultyDef.soulMult);
       this.spawnXpGem(b.x, b.y, 12, 'ruby');
       this.spawnFloatingNotice(b.x, b.y - 14, '+ALMAS', '#ffd166');
@@ -1615,10 +1737,14 @@ export class ArenaScene extends Phaser.Scene {
       this.spawnFloatingNotice(this.heroX, this.heroY - 34, `+${heal} VIDA`, '#7effb2');
     } else {
       gothicAudio.playPickup(true);
-      // Vacuum EVERY XP Gem on the entire map!!
+      // Vacuum EVERY XP Gem & Gold Coin on the entire map!!
       for (const g of this.gems) {
         g.magnetized = true;
         g.magnetTime = 0.12;
+      }
+      for (const c of this.goldCoins) {
+        c.magnetized = true;
+        c.magnetTime = 0.12;
       }
       this.spawnRingBurst(this.heroX, this.heroY, 0x67d4ff, 26);
       this.spawnFloatingNotice(this.heroX, this.heroY - 36, 'VÁCUO ASTRAL!', '#7ce8ff');
@@ -1656,8 +1782,10 @@ export class ArenaScene extends Phaser.Scene {
     const esc = this.getActEscalation();
     const maxActiveEnemies = esc.maxHorde;
 
+    const activeKinds = this.enemies.filter((e) => e.active && !e.dying).map((e) => e.kind);
+
     // 1. Unified 7-Stage Boss Milestones:
-    //    - 10:00 (600s): Act II Herald Sub-Boss
+    //    - 10:00 (600s): Act II Herald Sub-Boss (dedicated subboss_*)
     //    - 20:00 (1200s): 1st Major Stage Boss (boss20Min)
     //    - 30:00 (1800s): 2nd Major Stage Boss (boss30Min) -> Victory / Continue to 40:00 choice!
     //    - 40:00 (2400s): Final Supreme Overlord (boss40Min) -> Final stage completion!
@@ -1670,7 +1798,7 @@ export class ArenaScene extends Phaser.Scene {
         'A horda acelera e fica mais brutal! Derrote o Comandante!',
         'act_10_boss'
       );
-      const surgeKind = this.stageDef.enemyPool[Math.min(this.stageDef.enemyPool.length - 1, 2)];
+      const surgeKind = pickBalancedSpawnKind(this.stageDef.enemyPool, activeKinds, this.difficultyId, true);
       this.spawnCircleWave(surgeKind, Math.round(this.difficultyDef.bossEscortCount * 0.85));
     }
 
@@ -1683,7 +1811,7 @@ export class ArenaScene extends Phaser.Scene {
         'Primeiro Guardião Maior! Derrote-o para conquistar 2 Relicários Dourados!',
         'major_20_boss'
       );
-      const escortKind = this.stageDef.enemyPool[Math.min(this.stageDef.enemyPool.length - 1, 3)];
+      const escortKind = pickBalancedSpawnKind(this.stageDef.enemyPool, activeKinds, this.difficultyId, true);
       this.spawnCircleWave(escortKind, this.difficultyDef.bossEscortCount);
       if (this.difficultyId === 'epic' || this.difficultyId === 'holi_shit') {
         const guardKind = this.stageDef.subBossPool[0] ?? this.stageDef.midBoss;
@@ -1705,7 +1833,7 @@ export class ArenaScene extends Phaser.Scene {
         'Derrote o 2º Chefão para vencer a Fase ou seguir até os 40 minutos!',
         'major_30_boss'
       );
-      const escortKind = this.stageDef.enemyPool[Math.min(this.stageDef.enemyPool.length - 1, 4)];
+      const escortKind = pickBalancedSpawnKind(this.stageDef.enemyPool, activeKinds, this.difficultyId, true);
       this.spawnCircleWave(escortKind, Math.round(this.difficultyDef.bossEscortCount * 1.2));
     }
 
@@ -1718,11 +1846,11 @@ export class ArenaScene extends Phaser.Scene {
         'Último Guardião do Eclipse! Derrote-o para finalizar de vez a Fase!',
         'final_40_boss'
       );
-      const apexEscort = this.stageDef.enemyPool[this.stageDef.enemyPool.length - 1];
+      const apexEscort = pickBalancedSpawnKind(this.stageDef.enemyPool, activeKinds, this.difficultyId, true);
       this.spawnCircleWave(apexEscort, Math.round(this.difficultyDef.bossEscortCount * 1.4));
     }
 
-    // 2. Recurring Regional Sub-Bosses scaled dynamically by difficulty + match progression!
+    // 2. Recurring Regional Sub-Bosses (100% Dedicated Sub-Boss Champions — ZERO Main Boss Overlap!)
     this.subBossTimer -= dt;
     if (this.subBossTimer <= 0) {
       this.subBossWaveIndex += 1;
@@ -1745,21 +1873,26 @@ export class ArenaScene extends Phaser.Scene {
         this.spawnBoss(
           kind,
           `Sub-Chefe: ${def.name}`,
-          'Campeão Regional à espreita — derruba Relicário Dourado!',
+          'Campeão Regional à espreita — derruba Relicário Dourado e Ouro!',
           'sub_boss'
         );
       }
-      const escort = this.stageDef.enemyPool[Math.min(this.stageDef.enemyPool.length - 1, Math.floor(elapsedMins / 8))];
+      const escort = pickBalancedSpawnKind(this.stageDef.enemyPool, activeKinds, this.difficultyId, true);
       this.spawnCircleWave(escort, Math.round(10 * this.difficultyDef.hordeMult));
     }
 
-    // 3. Periodic Horde Encirclement Surges scaled steeply with time & difficulty!
+    // 3. Periodic Horde Encirclement Surges — STRICTLY Melee (ZERO Pure-Ranged Hordes!)
     this.hordeSurgeTimer -= dt;
     if (this.hordeSurgeTimer <= 0 && this.enemies.length < maxActiveEnemies) {
       this.hordeSurgeTimer = Math.max(12, this.difficultyDef.surgeIntervalSec - elapsedMins * 0.45);
       const pool = this.stageDef.enemyPool;
-      const unlockedMax = Math.min(pool.length, 3 + Math.floor(elapsedMins / 5));
-      const pickKind = pool[Math.floor(Math.random() * unlockedMax)];
+      const unlockedMax = Math.min(pool.length, 3 + Math.floor(elapsedMins / 4));
+      const pickKind = pickBalancedSpawnKind(
+        pool.slice(0, unlockedMax),
+        activeKinds,
+        this.difficultyId,
+        true
+      );
       const waveSize = Math.min(
         56,
         Math.round((15 + elapsedMins * 1.55) * this.difficultyDef.hordeMult)
@@ -1774,15 +1907,25 @@ export class ArenaScene extends Phaser.Scene {
     this.spawnAccumulator += spawnsPerSecond * dt;
 
     const pool = this.stageDef.enemyPool;
-    const unlockedCount = Math.min(pool.length, Math.max(3, 3 + Math.floor(elapsedMins / 2.2)));
+    const unlockedCount = Math.min(pool.length, Math.max(4, 4 + Math.floor(elapsedMins / 2.0)));
+    const unlockedPool = pool.slice(0, unlockedCount);
 
     while (this.spawnAccumulator >= 1 && this.enemies.length < maxActiveEnemies) {
       this.spawnAccumulator -= 1;
-      const biasPow = elapsedMins < 3 ? 1.35 : elapsedMins < 12 ? 1.02 : 0.78;
-      const idx = Math.min(unlockedCount - 1, Math.floor(Math.pow(Math.random(), biasPow) * unlockedCount));
-      const kind = pool[idx];
-      for (let p = 0; p < esc.packSize && this.enemies.length < maxActiveEnemies; p++) {
+      const kind = pickBalancedSpawnKind(unlockedPool, activeKinds, this.difficultyId, false);
+      const isRangedPack = Boolean(ENEMIES[kind].isRanged);
+      // Never spawn a full pack of catapults/archers/mages at once — spawn 1 tactical ranged unit + melee escorts!
+      const effectivePack = isRangedPack ? 1 : esc.packSize;
+      for (let p = 0; p < effectivePack && this.enemies.length < maxActiveEnemies; p++) {
         this.spawnEnemyAroundHero(kind);
+        activeKinds.push(kind);
+      }
+      if (isRangedPack && esc.packSize > 1 && this.enemies.length < maxActiveEnemies) {
+        const meleeEscort = pickBalancedSpawnKind(unlockedPool, activeKinds, this.difficultyId, true);
+        for (let p = 1; p < esc.packSize && this.enemies.length < maxActiveEnemies; p++) {
+          this.spawnEnemyAroundHero(meleeEscort);
+          activeKinds.push(meleeEscort);
+        }
       }
     }
   }
@@ -1842,14 +1985,14 @@ export class ArenaScene extends Phaser.Scene {
   ): void {
     const def = ENEMIES[kind];
     const esc = this.getActEscalation();
-    const isBossUnit = bossRole !== 'none' || Boolean(def.isBoss);
+    const isBossUnit = bossRole !== 'none' || Boolean(def.isBoss) || Boolean(def.isSubBoss);
     const isElite =
       !isBossUnit && this.elapsedSeconds > 35 && Math.random() < this.difficultyDef.eliteChance;
 
     const baseRoleHpMult: Record<BossRole, number> = {
       none: 1,
-      sub_boss: def.isBoss ? 1.35 : 8.5,
-      act_10_boss: 2.4,
+      sub_boss: def.isBoss || def.isSubBoss ? 1.45 : 8.5,
+      act_10_boss: def.isSubBoss ? 2.8 : 2.4,
       major_20_boss: 4.6,
       major_30_boss: 6.4,
       final_40_boss: 9.0,
@@ -1864,13 +2007,15 @@ export class ArenaScene extends Phaser.Scene {
           : esc.hpMult * eliteMult)
     );
     const visualScale = isBossUnit
-      ? Math.max(def.scale, def.isBoss ? def.scale : def.scale * 1.45)
+      ? def.isBoss || def.isSubBoss
+        ? def.scale
+        : def.scale * 1.45
       : isElite
         ? def.scale * 1.28
         : def.scale;
 
     const shadow = this.add
-      .image(x, y + (isBossUnit ? 50 : 30) * visualScale, 'vfx_shadow')
+      .image(x, y + (isBossUnit ? 46 : 30) * visualScale, 'vfx_shadow')
       .setDepth(3)
       .setScale(visualScale * 0.95, visualScale * 0.72)
       .setAlpha(0);
@@ -1907,7 +2052,7 @@ export class ArenaScene extends Phaser.Scene {
       shadow,
       x,
       y,
-      radius: def.radius * (isBossUnit && !def.isBoss ? 1.45 : isElite ? 1.22 : 1),
+      radius: def.radius * (isBossUnit && !def.isBoss && !def.isSubBoss ? 1.45 : isElite ? 1.22 : 1),
       hp: scaledHp,
       maxHp: scaledHp,
       vx: 0,
@@ -1920,6 +2065,9 @@ export class ArenaScene extends Phaser.Scene {
       isElite,
       burnTimer: 0,
       burnTickTimer: 0,
+      chillTimer: 0,
+      attackAnimTimer: 0,
+      attackCooldown: def.rangedKind ? 1.3 + Math.random() * 1.4 : 0.4,
       spawnProgress: 0,
       hitFlashTimer: 0,
       squashTimer: 0,
@@ -1942,8 +2090,8 @@ export class ArenaScene extends Phaser.Scene {
     }
   }
 
-  private getForgeBonus(baseId: BaseWeaponId): WeaponForgeBonus {
-    return computeWeaponForgeBonus(this.inventory?.weaponForge?.[baseId] ?? 0);
+  private getForgeBonus(weaponId: ForgeableWeaponId): WeaponForgeBonus {
+    return computeWeaponForgeBonus(this.inventory?.weaponForge?.[weaponId] ?? 0);
   }
 
   private rollCrit(force = false, bonusCrit = 0): boolean {
@@ -2049,6 +2197,637 @@ export class ArenaScene extends Phaser.Scene {
           crossTier === 2 ? 0.85 : crossTier === 1 ? 1.05 : Math.max(1.15, 1.75 - crossLv * 0.1);
         this.weaponTimers.cross = baseCd * this.stats.cooldown * this.getForgeBonus('cross').cooldownMult;
         this.fireJudgmentCrosses(crossLv, crossTier);
+      }
+    }
+
+    // === 10 EXCLUSIVE GOLD-SHOP LEGENDARY WEAPONS ===
+    const katanaLv = w.crimson_katana ?? 0;
+    if (katanaLv > 0) {
+      this.weaponTimers.crimson_katana = (this.weaponTimers.crimson_katana ?? 0.2) - dt;
+      if (this.weaponTimers.crimson_katana <= 0) {
+        this.weaponTimers.crimson_katana =
+          Math.max(0.55, 1.02 - katanaLv * 0.08) *
+          this.stats.cooldown *
+          this.getForgeBonus('crimson_katana').cooldownMult;
+        this.fireCrimsonKatana(katanaLv);
+      }
+    }
+
+    const frostLv = w.frost_lance ?? 0;
+    if (frostLv > 0) {
+      this.weaponTimers.frost_lance = (this.weaponTimers.frost_lance ?? 0.3) - dt;
+      if (this.weaponTimers.frost_lance <= 0) {
+        this.weaponTimers.frost_lance =
+          Math.max(0.58, 1.05 - frostLv * 0.08) *
+          this.stats.cooldown *
+          this.getForgeBonus('frost_lance').cooldownMult;
+        this.fireFrostLance(frostLv);
+      }
+    }
+
+    const soulLv = w.soul_grimoire ?? 0;
+    if (soulLv > 0) {
+      this.weaponTimers.soul_grimoire = (this.weaponTimers.soul_grimoire ?? 0.4) - dt;
+      if (this.weaponTimers.soul_grimoire <= 0) {
+        this.weaponTimers.soul_grimoire =
+          Math.max(0.68, 1.2 - soulLv * 0.09) *
+          this.stats.cooldown *
+          this.getForgeBonus('soul_grimoire').cooldownMult;
+        this.fireSoulGrimoire(soulLv);
+      }
+    }
+
+    const chakramLv = w.solar_chakram ?? 0;
+    if (chakramLv > 0) {
+      this.weaponTimers.solar_chakram = (this.weaponTimers.solar_chakram ?? 0.5) - dt;
+      if (this.weaponTimers.solar_chakram <= 0) {
+        this.weaponTimers.solar_chakram =
+          Math.max(0.88, 1.48 - chakramLv * 0.1) *
+          this.stats.cooldown *
+          this.getForgeBonus('solar_chakram').cooldownMult;
+        this.fireSolarChakram(chakramLv);
+      }
+    }
+
+    const meteorLv = w.abyssal_meteor ?? 0;
+    if (meteorLv > 0) {
+      this.weaponTimers.abyssal_meteor = (this.weaponTimers.abyssal_meteor ?? 0.8) - dt;
+      if (this.weaponTimers.abyssal_meteor <= 0) {
+        this.weaponTimers.abyssal_meteor =
+          Math.max(1.55, 2.55 - meteorLv * 0.18) *
+          this.stats.cooldown *
+          this.getForgeBonus('abyssal_meteor').cooldownMult;
+        this.fireAbyssalMeteor(meteorLv);
+      }
+    }
+
+    const scytheLv = w.blood_scythe ?? 0;
+    if (scytheLv > 0) {
+      this.weaponTimers.blood_scythe = (this.weaponTimers.blood_scythe ?? 0.45) - dt;
+      if (this.weaponTimers.blood_scythe <= 0) {
+        this.weaponTimers.blood_scythe =
+          Math.max(0.88, 1.45 - scytheLv * 0.1) *
+          this.stats.cooldown *
+          this.getForgeBonus('blood_scythe').cooldownMult;
+        this.fireBloodScythe(scytheLv);
+      }
+    }
+
+    const bowLv = w.tempest_bow ?? 0;
+    if (bowLv > 0) {
+      this.weaponTimers.tempest_bow = (this.weaponTimers.tempest_bow ?? 0.35) - dt;
+      if (this.weaponTimers.tempest_bow <= 0) {
+        this.weaponTimers.tempest_bow =
+          Math.max(0.75, 1.28 - bowLv * 0.1) *
+          this.stats.cooldown *
+          this.getForgeBonus('tempest_bow').cooldownMult;
+        this.fireTempestBow(bowLv);
+      }
+    }
+
+    const beamLv = w.seraphic_beam ?? 0;
+    if (beamLv > 0) {
+      this.weaponTimers.seraphic_beam = (this.weaponTimers.seraphic_beam ?? 0.9) - dt;
+      if (this.weaponTimers.seraphic_beam <= 0) {
+        this.weaponTimers.seraphic_beam =
+          Math.max(2.3, 3.6 - beamLv * 0.22) *
+          this.stats.cooldown *
+          this.getForgeBonus('seraphic_beam').cooldownMult;
+        this.fireSeraphicBeam(beamLv);
+      }
+    }
+
+    const voidLv = w.void_singularity ?? 0;
+    if (voidLv > 0) {
+      this.weaponTimers.void_singularity = (this.weaponTimers.void_singularity ?? 1.1) - dt;
+      if (this.weaponTimers.void_singularity <= 0) {
+        this.weaponTimers.void_singularity =
+          Math.max(2.5, 4.0 - voidLv * 0.25) *
+          this.stats.cooldown *
+          this.getForgeBonus('void_singularity').cooldownMult;
+        this.fireVoidSingularity(voidLv);
+      }
+    }
+
+    const dragonLv = w.eclipse_dragon ?? 0;
+    if (dragonLv > 0) {
+      this.weaponTimers.eclipse_dragon = (this.weaponTimers.eclipse_dragon ?? 0.95) - dt;
+      if (this.weaponTimers.eclipse_dragon <= 0) {
+        this.weaponTimers.eclipse_dragon =
+          Math.max(1.8, 3.0 - dragonLv * 0.2) *
+          this.stats.cooldown *
+          this.getForgeBonus('eclipse_dragon').cooldownMult;
+        this.fireEclipseDragon(dragonLv);
+      }
+    }
+  }
+
+  private fireCrimsonKatana(lv: number): void {
+    this.triggerHeroAttackAnim();
+    gothicAudio.playWhip(true);
+    const fb = this.getForgeBonus('crimson_katana');
+    const slashes = (lv >= 4 ? 3 : lv >= 2 ? 2 : 1) + Math.min(2, this.stats.amount) + fb.bonusAmount;
+    const damage = (34 + lv * 12) * this.stats.might * fb.damageMult;
+    const areaScale = (1.16 + lv * 0.1) * this.stats.area * fb.areaMult;
+
+    for (let i = 0; i < slashes; i++) {
+      const dir = i % 2 === 0 ? this.facing : -this.facing;
+      const offsetY = i >= 2 ? (i % 2 === 0 ? -36 : 36) : -4 + i * 10;
+      this.time.delayedCall(i * 55, () => {
+        if (this.isSimulationPaused()) return;
+        const sx = this.heroX + dir * (82 * areaScale);
+        const sy = this.heroY + offsetY;
+        const slash = this.add
+          .image(sx, sy, 'vfx_katana_slash')
+          .setDepth(23)
+          .setFlipX(dir < 0)
+          .setScale(0.25 * areaScale, 0.72 * areaScale)
+          .setBlendMode(Phaser.BlendModes.ADD);
+        this.tweens.add({
+          targets: slash,
+          scaleX: 1.24 * areaScale,
+          scaleY: 1.12 * areaScale,
+          alpha: { from: 1, to: 0 },
+          duration: 190,
+          ease: 'Cubic.easeOut',
+          onComplete: () => slash.destroy(),
+        });
+        const reachX = 96 * areaScale;
+        const reachY = 48 * areaScale;
+        this.damageBreakablesInRadius(sx, sy, reachX * 0.85, damage);
+        for (const enemy of this.grid.queryRadius(sx, sy, reachX)) {
+          if (
+            Math.abs(enemy.x - sx) <= reachX + enemy.radius &&
+            Math.abs(enemy.y - sy) <= reachY + enemy.radius
+          ) {
+            const isCrit = this.rollCrit(false, 0.18 + fb.critBonus);
+            if (lv >= 5) enemy.burnTimer = Math.max(enemy.burnTimer, 2.2);
+            this.damageEnemy(enemy, isCrit ? damage * 1.7 : damage, dir * 185, 0, isCrit, 0);
+          }
+        }
+      });
+    }
+  }
+
+  private fireFrostLance(lv: number): void {
+    const nearest = this.grid.findNearest(this.heroX, this.heroY, 640);
+    if (!nearest) return;
+    this.triggerHeroAttackAnim();
+    gothicAudio.playDaggers();
+    const fb = this.getForgeBonus('frost_lance');
+    const count = 2 + Math.floor(lv / 2) + this.stats.amount + fb.bonusAmount;
+    const damage = (26 + lv * 9.5) * this.stats.might * fb.damageMult;
+    const baseAngle = Math.atan2(nearest.y - this.heroY, nearest.x - this.heroX);
+    const speed = (580 + lv * 30) * this.stats.projSpeed;
+
+    for (let i = 0; i < count; i++) {
+      const angle = baseAngle + (i - (count - 1) / 2) * 0.13;
+      const sprite = this.add
+        .image(this.heroX, this.heroY - 6, 'vfx_frost_lance')
+        .setDepth(21)
+        .setScale(1.08 * this.stats.area * fb.areaMult)
+        .setRotation(angle)
+        .setBlendMode(Phaser.BlendModes.ADD);
+      this.projectiles.push({
+        sprite,
+        x: this.heroX,
+        y: this.heroY - 6,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        accelX: 0,
+        accelY: 0,
+        gravity: 0,
+        spinSpeed: 0,
+        damage,
+        pierce: 3 + lv,
+        radius: 15 * this.stats.area * fb.areaMult,
+        life: 1.45,
+        crit: this.rollCrit(false, 0.08 + fb.critBonus),
+        lifeSteal: 0,
+        chillDuration: 2.2 + lv * 0.3,
+        hitIds: new Set(),
+      });
+    }
+  }
+
+  private fireSoulGrimoire(lv: number): void {
+    const nearest = this.grid.findNearest(this.heroX, this.heroY, 680);
+    if (!nearest) return;
+    this.triggerHeroAttackAnim();
+    gothicAudio.playWand(true);
+    const fb = this.getForgeBonus('soul_grimoire');
+    const count = 2 + Math.floor((lv + 1) / 2) + this.stats.amount + fb.bonusAmount;
+    const damage = (30 + lv * 10.5) * this.stats.might * fb.damageMult;
+    const speed = (340 + lv * 26) * this.stats.projSpeed;
+
+    for (let i = 0; i < count; i++) {
+      const ang = (i / count) * Math.PI * 2 + this.elapsedSeconds;
+      const sprite = this.add
+        .image(this.heroX, this.heroY - 8, 'vfx_soul_skull')
+        .setDepth(21)
+        .setScale(1.05 * this.stats.area * fb.areaMult)
+        .setBlendMode(Phaser.BlendModes.ADD);
+      this.projectiles.push({
+        sprite,
+        x: this.heroX,
+        y: this.heroY - 8,
+        vx: Math.cos(ang) * speed,
+        vy: Math.sin(ang) * speed,
+        accelX: 0,
+        accelY: 0,
+        gravity: 0,
+        spinSpeed: 3.5,
+        damage,
+        pierce: lv >= 4 ? 2 : 1,
+        radius: 16 * this.stats.area * fb.areaMult,
+        life: 2.4,
+        crit: this.rollCrit(false, 0.1 + fb.critBonus),
+        lifeSteal: 0,
+        homingStrength: 7.2 + lv * 0.8,
+        aoeBurstRadius: lv >= 3 ? (56 + lv * 8) * this.stats.area * fb.areaMult : undefined,
+        aoeBurstColor: 0x3ef2a8,
+        hitIds: new Set(),
+      });
+    }
+  }
+
+  private fireSolarChakram(lv: number): void {
+    const nearest = this.grid.findNearest(this.heroX, this.heroY, 620);
+    if (!nearest) return;
+    this.triggerHeroAttackAnim();
+    gothicAudio.playCross();
+    const fb = this.getForgeBonus('solar_chakram');
+    const count = 1 + Math.floor(lv / 2) + this.stats.amount + fb.bonusAmount;
+    const damage = (36 + lv * 11) * this.stats.might * fb.damageMult;
+    const speed = (460 + lv * 28) * this.stats.projSpeed;
+    const baseAngle = Math.atan2(nearest.y - this.heroY, nearest.x - this.heroX);
+
+    for (let i = 0; i < count; i++) {
+      const angle = baseAngle + (i - (count - 1) / 2) * 0.25;
+      const sprite = this.add
+        .image(this.heroX, this.heroY - 4, 'vfx_solar_chakram')
+        .setDepth(21)
+        .setScale((1.0 + lv * 0.08) * this.stats.area * fb.areaMult)
+        .setBlendMode(Phaser.BlendModes.ADD);
+      this.projectiles.push({
+        sprite,
+        x: this.heroX,
+        y: this.heroY - 4,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        accelX: 0,
+        accelY: 0,
+        gravity: 0,
+        spinSpeed: 15,
+        damage,
+        pierce: 99,
+        radius: 21 * this.stats.area * fb.areaMult,
+        life: 3.1,
+        crit: this.rollCrit(false, 0.12 + fb.critBonus),
+        lifeSteal: 0,
+        bouncesRemaining: 3 + lv,
+        hitIds: new Set(),
+      });
+    }
+  }
+
+  private fireAbyssalMeteor(lv: number): void {
+    const inRange = this.grid.queryRadius(this.heroX, this.heroY, 540);
+    if (inRange.length === 0) return;
+    gothicAudio.playThunder();
+    const fb = this.getForgeBonus('abyssal_meteor');
+    const count = 1 + Math.floor(lv / 2) + Math.min(2, this.stats.amount) + fb.bonusAmount;
+    const impactDamage = (78 + lv * 24) * this.stats.might * fb.damageMult;
+    const radius = (84 + lv * 12) * this.stats.area * fb.areaMult;
+
+    for (let i = 0; i < count; i++) {
+      const pick = inRange[Phaser.Math.Between(0, inRange.length - 1)];
+      if (!pick) continue;
+      const tx = pick.x + Phaser.Math.Between(-24, 24);
+      const ty = pick.y + Phaser.Math.Between(-24, 24);
+
+      this.time.delayedCall(i * 150, () => {
+        if (this.runEnded) return;
+        const meteor = this.add
+          .image(tx + 110, ty - 280, 'vfx_meteor_rock')
+          .setDepth(26)
+          .setScale(1.25 * this.stats.area * fb.areaMult)
+          .setBlendMode(Phaser.BlendModes.ADD);
+        this.tweens.add({
+          targets: meteor,
+          x: tx,
+          y: ty,
+          rotation: 4.2,
+          duration: 310,
+          ease: 'Quad.easeIn',
+          onComplete: () => {
+            meteor.destroy();
+            if (this.runEnded) return;
+            this.cameras.main.shake(120, 0.0035);
+            this.spawnRingBurst(tx, ty, 0xff6a1a, 18);
+            this.damageBreakablesInRadius(tx, ty, radius, impactDamage);
+            for (const v of this.grid.queryRadius(tx, ty, radius)) {
+              v.burnTimer = Math.max(v.burnTimer, 3.0);
+              this.damageEnemy(v, impactDamage, 0, -40, this.rollCrit(true, fb.critBonus), 0);
+            }
+            const poolSprite = this.add
+              .image(tx, ty, 'vfx_fire_pool')
+              .setDepth(2)
+              .setDisplaySize(radius * 1.5, radius * 1.5)
+              .setTint(0xff5a1f)
+              .setBlendMode(Phaser.BlendModes.ADD);
+            this.firePools.push({
+              sprite: poolSprite,
+              x: tx,
+              y: ty,
+              radius: radius * 0.78,
+              damage: impactDamage * 0.28,
+              life: 3.4,
+              maxLife: 3.4,
+              tickTimer: 0.25,
+              flameEmitTimer: 0,
+              homing: false,
+              palette: 'hellfire',
+            });
+          },
+        });
+      });
+    }
+  }
+
+  private fireBloodScythe(lv: number): void {
+    this.triggerHeroAttackAnim();
+    gothicAudio.playAxe();
+    const fb = this.getForgeBonus('blood_scythe');
+    const count = (lv >= 3 ? 2 : 1) + Math.min(2, this.stats.amount) + fb.bonusAmount;
+    const damage = (46 + lv * 14) * this.stats.might * fb.damageMult;
+    const speed = (345 + lv * 20) * this.stats.projSpeed;
+    // Balanced vampiric life-steal governed by hero's lifeStealBudget cap!
+    const lifeStealAmt = lv >= 4 ? 1.15 : 0.7;
+
+    for (let i = 0; i < count; i++) {
+      const ang = (i / count) * Math.PI * 2 + this.elapsedSeconds * 1.3;
+      const sprite = this.add
+        .image(this.heroX, this.heroY, 'vfx_scythe')
+        .setDepth(22)
+        .setScale((1.22 + lv * 0.1) * this.stats.area * fb.areaMult)
+        .setTint(0xff204e)
+        .setBlendMode(Phaser.BlendModes.ADD);
+      this.projectiles.push({
+        sprite,
+        x: this.heroX,
+        y: this.heroY,
+        vx: Math.cos(ang) * speed,
+        vy: Math.sin(ang) * speed,
+        accelX: -Math.cos(ang) * speed * 1.45,
+        accelY: -Math.sin(ang) * speed * 1.45,
+        gravity: 0,
+        spinSpeed: 14,
+        damage,
+        pierce: 99,
+        radius: (28 + lv * 3) * this.stats.area * fb.areaMult,
+        life: 1.9,
+        crit: this.rollCrit(false, 0.15 + fb.critBonus),
+        lifeSteal: lifeStealAmt,
+        hitIds: new Set(),
+      });
+    }
+  }
+
+  private fireTempestBow(lv: number): void {
+    const nearest = this.grid.findNearest(this.heroX, this.heroY, 640);
+    const baseAngle = nearest
+      ? Math.atan2(nearest.y - this.heroY, nearest.x - this.heroX)
+      : Math.atan2(this.aimY, this.aimX);
+    this.triggerHeroAttackAnim();
+    gothicAudio.playDaggers();
+    const fb = this.getForgeBonus('tempest_bow');
+    const arrows = 3 + (lv >= 2 ? 2 : 0) + (lv >= 4 ? 2 : 0) + this.stats.amount + fb.bonusAmount;
+    const damage = (32 + lv * 10.5) * this.stats.might * fb.damageMult;
+    const speed = (650 + lv * 28) * this.stats.projSpeed;
+
+    for (let i = 0; i < arrows; i++) {
+      const angle = baseAngle + (i - (arrows - 1) / 2) * 0.11;
+      const sprite = this.add
+        .image(this.heroX, this.heroY - 5, 'vfx_storm_arrow')
+        .setDepth(21)
+        .setScale(1.1 * this.stats.area * fb.areaMult)
+        .setRotation(angle)
+        .setBlendMode(Phaser.BlendModes.ADD);
+      this.projectiles.push({
+        sprite,
+        x: this.heroX,
+        y: this.heroY - 5,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        accelX: 0,
+        accelY: 0,
+        gravity: 0,
+        spinSpeed: 0,
+        damage,
+        pierce: lv >= 3 ? 4 + lv : 2,
+        radius: 14 * this.stats.area * fb.areaMult,
+        life: 1.35,
+        crit: this.rollCrit(false, 0.14 + fb.critBonus),
+        lifeSteal: 0,
+        chainShockRadius: (75 + lv * 12) * this.stats.area * fb.areaMult,
+        hitIds: new Set(),
+      });
+    }
+  }
+
+  private fireSeraphicBeam(lv: number): void {
+    gothicAudio.playThunder();
+    const fb = this.getForgeBonus('seraphic_beam');
+    const beams = lv >= 5 ? 4 : lv >= 3 ? 2 : 1;
+    const length = (240 + lv * 26) * this.stats.area * fb.areaMult;
+    const halfWidth = (18 + lv * 3.5) * this.stats.area * fb.areaMult;
+    const damage = (34 + lv * 12) * this.stats.might * fb.damageMult;
+    const duration = 1.9 + lv * 0.25;
+    const startAngle = Math.atan2(this.aimY, this.aimX);
+
+    for (let i = 0; i < beams; i++) {
+      const ang = startAngle + (i / beams) * Math.PI * 2;
+      const sprite = this.add
+        .image(this.heroX, this.heroY, 'vfx_seraph_beam')
+        .setOrigin(0, 0.5)
+        .setDepth(23)
+        .setDisplaySize(length, halfWidth * 2)
+        .setRotation(ang)
+        .setBlendMode(Phaser.BlendModes.ADD);
+      this.seraphBeams.push({
+        sprite,
+        angle: ang,
+        angularSpeed: (1.55 + lv * 0.2) * (i % 2 === 0 ? 1 : 1),
+        length,
+        halfWidth,
+        damage,
+        life: duration,
+        maxLife: duration,
+        tickTimer: 0,
+      });
+    }
+  }
+
+  private fireVoidSingularity(lv: number): void {
+    gothicAudio.playFlask();
+    const fb = this.getForgeBonus('void_singularity');
+    const count = (lv >= 4 ? 2 : 1) + Math.min(1, fb.bonusAmount);
+    const radius = (118 + lv * 18) * this.stats.area * fb.areaMult;
+    const damage = (28 + lv * 10) * this.stats.might * fb.damageMult;
+    const duration = 3.2 + lv * 0.35;
+
+    for (let i = 0; i < count; i++) {
+      const nearest = this.grid.findNearest(this.heroX, this.heroY, 440);
+      const ang = nearest
+        ? Math.atan2(nearest.y - this.heroY, nearest.x - this.heroX) + i * 1.4
+        : Math.random() * Math.PI * 2;
+      const dist = nearest ? Math.min(260, Math.hypot(nearest.x - this.heroX, nearest.y - this.heroY)) : 180;
+      const vx = this.heroX + Math.cos(ang) * dist;
+      const vy = this.heroY + Math.sin(ang) * dist;
+
+      const sprite = this.add
+        .image(vx, vy, 'vfx_void_orb')
+        .setDepth(4)
+        .setDisplaySize(radius * 1.6, radius * 1.6)
+        .setBlendMode(Phaser.BlendModes.ADD);
+      this.voidWells.push({
+        sprite,
+        x: vx,
+        y: vy,
+        radius,
+        damage,
+        life: duration,
+        maxLife: duration,
+        tickTimer: 0,
+      });
+    }
+  }
+
+  private fireEclipseDragon(lv: number): void {
+    const nearest = this.grid.findNearest(this.heroX, this.heroY, 640);
+    const baseAngle = nearest
+      ? Math.atan2(nearest.y - this.heroY, nearest.x - this.heroX)
+      : Math.atan2(this.aimY, this.aimX);
+    this.triggerHeroAttackAnim();
+    gothicAudio.playBossHorn();
+    const fb = this.getForgeBonus('eclipse_dragon');
+    const dragons = (lv >= 4 ? 2 : 1) + Math.min(1, fb.bonusAmount);
+    const damage = (62 + lv * 18) * this.stats.might * fb.damageMult;
+    const speed = (375 + lv * 24) * this.stats.projSpeed;
+
+    for (let i = 0; i < dragons; i++) {
+      const ang = baseAngle + (i === 0 ? 0 : Math.PI);
+      const sprite = this.add
+        .image(this.heroX, this.heroY, 'vfx_dragon_orb')
+        .setDepth(24)
+        .setScale((1.35 + lv * 0.14) * this.stats.area * fb.areaMult)
+        .setBlendMode(Phaser.BlendModes.ADD);
+      this.projectiles.push({
+        sprite,
+        x: this.heroX,
+        y: this.heroY,
+        vx: Math.cos(ang) * speed,
+        vy: Math.sin(ang) * speed,
+        accelX: 0,
+        accelY: 0,
+        gravity: 0,
+        spinSpeed: 6,
+        damage,
+        pierce: 99,
+        radius: (34 + lv * 4) * this.stats.area * fb.areaMult,
+        life: 2.6 + lv * 0.2,
+        crit: this.rollCrit(true, fb.critBonus),
+        lifeSteal: 0,
+        aoeBurstRadius: lv >= 3 ? 64 * this.stats.area * fb.areaMult : undefined,
+        aoeBurstColor: 0xff4824,
+        waveAmp: 210,
+        waveFreq: 7.5,
+        wavePhase: i * Math.PI,
+        trailFire: true,
+        hitIds: new Set(),
+      });
+    }
+  }
+
+  private updateVoidWellsAndBeams(time: number, dt: number): void {
+    // 1. Update Void Singularity gravitational black holes
+    for (let i = this.voidWells.length - 1; i >= 0; i--) {
+      const w = this.voidWells[i];
+      w.life -= dt;
+      w.tickTimer -= dt;
+      w.sprite
+        .setRotation(time * 0.004)
+        .setAlpha(Math.min(0.88, (w.life / 0.45) * 0.88));
+
+      const affected = this.grid.queryRadius(w.x, w.y, w.radius);
+      for (const e of affected) {
+        if (!e.def.isBoss) {
+          const dx = w.x - e.x;
+          const dy = w.y - e.y;
+          const dist = Math.hypot(dx, dy) || 1;
+          const pull = (1 - Math.min(1, dist / w.radius)) * 220 * dt;
+          e.x += (dx / dist) * pull;
+          e.y += (dy / dist) * pull;
+        }
+      }
+
+      if (w.tickTimer <= 0) {
+        w.tickTimer = 0.28;
+        this.damageBreakablesInRadius(w.x, w.y, w.radius * 0.85, w.damage);
+        for (const e of affected) {
+          this.damageEnemy(e, w.damage, 0, 0, this.rollCrit(false, 0.1), 0);
+        }
+      }
+
+      if (w.life <= 0) {
+        // Implosion burst on collapse!
+        this.spawnRingBurst(w.x, w.y, 0xc355ff, 20);
+        for (const e of this.grid.queryRadius(w.x, w.y, w.radius * 1.15)) {
+          this.damageEnemy(e, w.damage * 2.4, 0, 0, true, 0);
+        }
+        w.sprite.destroy();
+        this.voidWells.splice(i, 1);
+      }
+    }
+
+    // 2. Update Seraphic Rotating Beams
+    for (let i = this.seraphBeams.length - 1; i >= 0; i--) {
+      const b = this.seraphBeams[i];
+      b.life -= dt;
+      b.tickTimer -= dt;
+      b.angle += b.angularSpeed * dt;
+      b.sprite
+        .setPosition(this.heroX, this.heroY)
+        .setRotation(b.angle)
+        .setAlpha(Math.min(0.92, (b.life / 0.35) * 0.92));
+
+      if (b.tickTimer <= 0) {
+        b.tickTimer = 0.16;
+        const cosA = Math.cos(b.angle);
+        const sinA = Math.sin(b.angle);
+        const candidates = this.grid.queryRadius(this.heroX, this.heroY, b.length + 32);
+        for (const e of candidates) {
+          const rx = e.x - this.heroX;
+          const ry = e.y - this.heroY;
+          const proj = rx * cosA + ry * sinA;
+          if (proj < 0 || proj > b.length) continue;
+          const perp = Math.abs(-rx * sinA + ry * cosA);
+          if (perp <= b.halfWidth + e.radius) {
+            this.damageEnemy(e, b.damage, cosA * 90, sinA * 90, this.rollCrit(false, 0.14), 0);
+          }
+        }
+        this.damageBreakablesInRadius(
+          this.heroX + cosA * (b.length * 0.5),
+          this.heroY + sinA * (b.length * 0.5),
+          b.length * 0.5,
+          b.damage
+        );
+      }
+
+      if (b.life <= 0) {
+        b.sprite.destroy();
+        this.seraphBeams.splice(i, 1);
       }
     }
   }
@@ -2865,13 +3644,55 @@ export class ArenaScene extends Phaser.Scene {
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const p = this.projectiles[i];
       p.life -= dt;
+
+      // Homing tracking (e.g. Soul Grimoire spectral skulls)
+      if (p.homingStrength && p.homingStrength > 0) {
+        const target = this.grid.findNearest(p.x, p.y, 460);
+        if (target && !p.hitIds.has(target.id)) {
+          const spd = Math.hypot(p.vx, p.vy) || 320;
+          const desiredAng = Math.atan2(target.y - p.y, target.x - p.x);
+          const curAng = Math.atan2(p.vy, p.vx);
+          const diff = Phaser.Math.Angle.Wrap(desiredAng - curAng);
+          const nextAng = curAng + Phaser.Math.Clamp(diff, -p.homingStrength * dt, p.homingStrength * dt);
+          p.vx = Math.cos(nextAng) * spd;
+          p.vy = Math.sin(nextAng) * spd;
+        }
+      }
+
       p.vx += p.accelX * dt;
       p.vy += (p.accelY + p.gravity) * dt;
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
+
+      let stepVx = p.vx;
+      let stepVy = p.vy;
+      // Undulating serpentine motion (e.g. Eclipse Dragon)
+      if (p.waveAmp && p.waveFreq) {
+        p.wavePhase = (p.wavePhase ?? 0) + p.waveFreq * dt;
+        const speed = Math.hypot(p.vx, p.vy) || 1;
+        const perpX = -p.vy / speed;
+        const perpY = p.vx / speed;
+        const offset = Math.sin(p.wavePhase) * p.waveAmp;
+        stepVx += perpX * offset;
+        stepVy += perpY * offset;
+      }
+
+      p.x += stepVx * dt;
+      p.y += stepVy * dt;
       p.sprite.setPosition(p.x, p.y);
       if (p.spinSpeed !== 0) {
         p.sprite.rotation += p.spinSpeed * dt;
+      } else if (p.homingStrength) {
+        p.sprite.rotation = Math.atan2(stepVy, stepVx);
+      }
+
+      if (p.trailFire && Math.random() < 0.65) {
+        this.spawnPhysicsFlame(
+          p.x + Phaser.Math.Between(-8, 8),
+          p.y + Phaser.Math.Between(-8, 8),
+          -stepVx * 0.14,
+          -stepVy * 0.14 - 22,
+          'hellfire',
+          0.95
+        );
       }
 
       this.damageBreakablesInRadius(p.x, p.y, p.radius, p.damage);
@@ -2881,19 +3702,24 @@ export class ArenaScene extends Phaser.Scene {
         const enemy = hits[h];
         if (p.hitIds.has(enemy.id)) continue;
         p.hitIds.add(enemy.id);
-        p.pierce -= 1;
 
-        const norm = Math.hypot(p.vx, p.vy) || 1;
+        const norm = Math.hypot(stepVx, stepVy) || 1;
+        if (p.chillDuration) {
+          enemy.chillTimer = Math.max(enemy.chillTimer, p.chillDuration);
+        }
+        if (p.trailFire) {
+          enemy.burnTimer = Math.max(enemy.burnTimer, 2.4);
+        }
         this.damageEnemy(
           enemy,
           p.crit ? p.damage * 1.55 : p.damage,
-          (p.vx / norm) * 145,
-          (p.vy / norm) * 145,
+          (stepVx / norm) * 145,
+          (stepVy / norm) * 145,
           p.crit,
           p.lifeSteal
         );
         if (p.aoeBurstRadius) {
-          this.spawnRingBurst(p.x, p.y, 0x00e5ff, 8);
+          this.spawnRingBurst(p.x, p.y, p.aoeBurstColor ?? 0x00e5ff, 8);
           const splash = this.grid.queryRadius(p.x, p.y, p.aoeBurstRadius);
           for (const sv of splash) {
             if (sv.id !== enemy.id) {
@@ -2901,12 +3727,243 @@ export class ArenaScene extends Phaser.Scene {
             }
           }
         }
+        if (p.chainShockRadius) {
+          const nearbyShock = this.grid.queryRadius(enemy.x, enemy.y, p.chainShockRadius);
+          let chained = 0;
+          for (const sv of nearbyShock) {
+            if (sv.id !== enemy.id && chained < 2) {
+              chained += 1;
+              this.damageEnemy(sv, p.damage * 0.45, 0, 0, false, 0);
+              this.spawnRingBurst(sv.x, sv.y, 0x5ce1ff, 5);
+            }
+          }
+        }
+
+        // Solar Chakram ricochet bounce to nearest unhit foe!
+        if (p.bouncesRemaining && p.bouncesRemaining > 0) {
+          p.bouncesRemaining -= 1;
+          const bounceTargets = this.grid.queryRadius(p.x, p.y, 320);
+          let nextTarget: EnemyRuntime | undefined;
+          let bestDistSq = Infinity;
+          for (const cand of bounceTargets) {
+            if (p.hitIds.has(cand.id)) continue;
+            const dSq = (cand.x - p.x) ** 2 + (cand.y - p.y) ** 2;
+            if (dSq < bestDistSq) {
+              bestDistSq = dSq;
+              nextTarget = cand;
+            }
+          }
+          if (nextTarget) {
+            const spd = Math.hypot(p.vx, p.vy) || 460;
+            const ang = Math.atan2(nextTarget.y - p.y, nextTarget.x - p.x);
+            p.vx = Math.cos(ang) * spd;
+            p.vy = Math.sin(ang) * spd;
+            this.spawnRingBurst(p.x, p.y, 0xffbe3d, 6);
+            break;
+          } else {
+            p.pierce = 0;
+            break;
+          }
+        }
+
+        p.pierce -= 1;
         if (p.pierce <= 0) break;
       }
 
       if (p.life <= 0 || p.pierce <= 0) {
         p.sprite.destroy();
         this.projectiles.splice(i, 1);
+      }
+    }
+  }
+
+  private triggerEnemyAttackAnim(e: EnemyRuntime): void {
+    if (!e.def.hasAttackAnim || e.dying) return;
+    const atkKey = `enemy_${e.kind}_attack`;
+    if (this.anims.exists(atkKey)) {
+      e.attackAnimTimer = e.kind === 'catapult' ? 0.5 : 0.36;
+      e.sprite.play(atkKey, true);
+    }
+  }
+
+  private spawnEnemyProjectile(e: EnemyRuntime, dmgMult: number): void {
+    const kind = e.def.rangedKind;
+    if (!kind) return;
+    const speed = e.def.projectileSpeed ?? 220;
+    const projDamage = Math.max(
+      4,
+      Math.round(e.def.damage * 0.85 * dmgMult * (0.85 + this.stageDef.difficultyMult * 0.12))
+    );
+    const dx = this.heroX - e.x;
+    const dy = this.heroY - e.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    const isLobbed = kind === 'boulder' || kind === 'plague_flask';
+
+    if (isLobbed) {
+      // Parabolic lobbed siege shot (Catapult boulder / Plague flask) with clear ground danger telegraph!
+      const lead = kind === 'boulder' ? 0.28 : 0.18;
+      const targetX = this.heroX + this.heroVx * lead;
+      const targetY = this.heroY + this.heroVy * lead;
+      const aoeRadius = e.def.aoeRadius ?? 54;
+      const flightDuration = Phaser.Math.Clamp(dist / speed, 0.85, 1.55);
+
+      const telegraph = this.add
+        .image(targetX, targetY, 'vfx_telegraph_ring')
+        .setDepth(3)
+        .setDisplaySize(aoeRadius * 2, aoeRadius * 2)
+        .setTint(kind === 'plague_flask' ? 0x52ff9a : 0xff5a36)
+        .setAlpha(0.72);
+      const shadow = this.add
+        .image(e.x, e.y + 8, 'vfx_shadow')
+        .setDepth(4)
+        .setScale(0.7, 0.5)
+        .setAlpha(0.45);
+      const sprite = this.add
+        .image(e.x, e.y - 18, kind === 'boulder' ? 'vfx_enemy_boulder' : 'vfx_enemy_orb')
+        .setDepth(26)
+        .setScale(kind === 'boulder' ? 1.12 : 0.95)
+        .setTint(kind === 'plague_flask' ? 0x52ff9a : 0xffffff);
+
+      this.enemyProjectiles.push({
+        kind,
+        sprite,
+        shadow,
+        telegraph,
+        x: e.x,
+        y: e.y - 18,
+        startX: e.x,
+        startY: e.y - 18,
+        targetX,
+        targetY,
+        vx: 0,
+        vy: 0,
+        damage: projDamage,
+        radius: 16,
+        aoeRadius,
+        life: flightDuration + 0.1,
+        flightDuration,
+        elapsed: 0,
+        isLobbed: true,
+        spinSpeed: 8.5,
+      });
+      return;
+    }
+
+    // Aimed linear projectile (Arrow, Blood Mage Arcane Bolt, Gargoyle Obsidian Shard, Soul Bolt, Ember Orb)
+    const ang = Math.atan2(dy, dx);
+    const tex =
+      kind === 'arrow'
+        ? 'vfx_enemy_arrow'
+        : kind === 'obsidian_shard'
+          ? 'vfx_enemy_shard'
+          : 'vfx_enemy_orb';
+    const tint =
+      kind === 'soul_bolt'
+        ? 0x4effb8
+        : kind === 'ember_orb'
+          ? 0xff8c2a
+          : kind === 'arcane_bolt'
+            ? 0xff2a6d
+            : 0xffffff;
+    const sprite = this.add
+      .image(e.x, e.y - 8, tex)
+      .setDepth(25)
+      .setRotation(ang)
+      .setTint(tint)
+      .setScale(e.def.isSubBoss ? 1.25 : 1.0);
+
+    this.enemyProjectiles.push({
+      kind,
+      sprite,
+      x: e.x,
+      y: e.y - 8,
+      startX: e.x,
+      startY: e.y - 8,
+      targetX: this.heroX,
+      targetY: this.heroY,
+      vx: Math.cos(ang) * speed,
+      vy: Math.sin(ang) * speed,
+      damage: projDamage,
+      radius: kind === 'arrow' ? 10 : 12,
+      aoeRadius: 0,
+      life: 2.8,
+      flightDuration: 2.8,
+      elapsed: 0,
+      isLobbed: false,
+      spinSpeed: tex === 'vfx_enemy_orb' ? 6 : 0,
+    });
+  }
+
+  private updateEnemyProjectiles(dt: number): void {
+    for (let i = this.enemyProjectiles.length - 1; i >= 0; i--) {
+      const ep = this.enemyProjectiles[i];
+      ep.elapsed += dt;
+      ep.life -= dt;
+
+      if (ep.isLobbed) {
+        const u = Phaser.Math.Clamp(ep.elapsed / ep.flightDuration, 0, 1);
+        const groundX = Phaser.Math.Linear(ep.startX, ep.targetX, u);
+        const groundY = Phaser.Math.Linear(ep.startY, ep.targetY, u);
+        const arcHeight = Math.sin(u * Math.PI) * (ep.kind === 'boulder' ? 115 : 78);
+        ep.x = groundX;
+        ep.y = groundY - arcHeight;
+        ep.sprite.setPosition(ep.x, ep.y).setRotation(ep.sprite.rotation + ep.spinSpeed * dt);
+        ep.shadow?.setPosition(groundX, groundY + 6).setScale(0.55 + u * 0.45, 0.4 + u * 0.3);
+        ep.telegraph?.setAlpha(0.42 + u * 0.48).setScale(
+          (ep.aoeRadius * 2) / 128 * (0.85 + u * 0.15)
+        );
+
+        if (u >= 1) {
+          // Detonate siege boulder / plague flask AOE!
+          const burstColor = ep.kind === 'plague_flask' ? 0x52ff9a : 0xff6a1a;
+          this.spawnRingBurst(ep.targetX, ep.targetY, burstColor, 14);
+          if (ep.kind === 'boulder') {
+            this.cameras.main.shake(90, 0.0028);
+            for (let f = 0; f < 4; f++) {
+              this.spawnPhysicsFlame(
+                ep.targetX + Phaser.Math.Between(-24, 24),
+                ep.targetY + Phaser.Math.Between(-18, 18),
+                Phaser.Math.Between(-30, 30),
+                -45,
+                'hellfire',
+                0.85
+              );
+            }
+          }
+          const hdx = this.heroX - ep.targetX;
+          const hdy = this.heroY - ep.targetY;
+          if (this.invulnTimer <= 0 && hdx * hdx + hdy * hdy <= (ep.aoeRadius + 10) ** 2) {
+            this.damageHero(ep.damage);
+          }
+          ep.sprite.destroy();
+          ep.shadow?.destroy();
+          ep.telegraph?.destroy();
+          this.enemyProjectiles.splice(i, 1);
+        }
+        continue;
+      }
+
+      // Linear aimed projectile update
+      ep.x += ep.vx * dt;
+      ep.y += ep.vy * dt;
+      ep.sprite.setPosition(ep.x, ep.y);
+      if (ep.spinSpeed !== 0) {
+        ep.sprite.rotation += ep.spinSpeed * dt;
+      }
+
+      const hdx = this.heroX - ep.x;
+      const hdy = this.heroY - ep.y;
+      const hitLim = ep.radius + 14;
+      if (this.invulnTimer <= 0 && hdx * hdx + hdy * hdy <= hitLim * hitLim) {
+        this.damageHero(ep.damage);
+        ep.sprite.destroy();
+        this.enemyProjectiles.splice(i, 1);
+        continue;
+      }
+
+      if (ep.life <= 0) {
+        ep.sprite.destroy();
+        this.enemyProjectiles.splice(i, 1);
       }
     }
   }
@@ -2926,7 +3983,7 @@ export class ArenaScene extends Phaser.Scene {
       const dxHero = this.heroX - e.x;
       const dyHero = this.heroY - e.y;
       const distHero = Math.hypot(dxHero, dyHero) || 1;
-      const isBossUnit = e.bossRole !== 'none' || Boolean(e.def.isBoss);
+      const isBossUnit = e.bossRole !== 'none' || Boolean(e.def.isBoss) || Boolean(e.def.isSubBoss);
       if (!isBossUnit && distHero > maxEnemyDist) {
         const angle = Math.random() * Math.PI * 2;
         e.x = this.heroX + Math.cos(angle) * (cam.width / 2 + 68);
@@ -2938,9 +3995,52 @@ export class ArenaScene extends Phaser.Scene {
         e.spawnProgress = Math.min(1, e.spawnProgress + dt * 2.9);
       }
 
+      if (e.chillTimer > 0) {
+        e.chillTimer = Math.max(0, e.chillTimer - dt);
+      }
+      if (e.attackCooldown > 0) {
+        e.attackCooldown = Math.max(0, e.attackCooldown - dt);
+      }
+      if (e.attackAnimTimer > 0) {
+        e.attackAnimTimer = Math.max(0, e.attackAnimTimer - dt);
+        if (e.attackAnimTimer <= 0 && !e.dying) {
+          const moveKey = `enemy_${e.kind}_move`;
+          if (this.anims.exists(moveKey)) {
+            e.sprite.play(moveKey, true);
+          }
+        }
+      }
+
       let moveSpeed = e.def.speed * (isBossUnit ? Math.max(1.0, esc.spdMult * 0.85) : esc.spdMult);
+      if (e.chillTimer > 0) {
+        moveSpeed *= 0.55;
+      }
       let dirX = dxHero / distHero;
       let dirY = dyHero / distHero;
+
+      // Ranged enemy AI (Archers, Mages, Catapults, Gargoyles, Plague Doctors, Magma Imps & Ranged Sub-Bosses)
+      if (e.def.rangedKind && e.spawnProgress >= 0.9) {
+        const atkRange = e.def.attackRange ?? 340;
+        if (e.def.isRanged && distHero < atkRange * 0.82 && distHero > 90) {
+          // Hold stance or roll slowly while aiming
+          moveSpeed *= e.kind === 'catapult' ? 0.08 : 0.32;
+        }
+        if (e.attackCooldown <= 0 && distHero <= atkRange && distHero >= 52) {
+          this.triggerEnemyAttackAnim(e);
+          this.spawnEnemyProjectile(e, esc.dmgMult);
+          const baseCd = e.def.attackCooldown ?? 3.3;
+          e.attackCooldown =
+            baseCd *
+            (0.85 + Math.random() * 0.3) *
+            (e.def.isSubBoss ? this.difficultyDef.bossAbilityCdMult : 1);
+        }
+      } else if (e.def.hasAttackAnim && e.spawnProgress >= 0.85) {
+        // Melee weapon swing animation when closing in on the hero (swords, clubs, axes, mauls, spears!)
+        if (distHero <= e.radius + 48 && e.attackCooldown <= 0) {
+          this.triggerEnemyAttackAnim(e);
+          e.attackCooldown = 1.05;
+        }
+      }
 
       if (e.kind === 'bat' || e.kind === 'banshee' || e.kind === 'magma_imp' || e.kind === 'gargoyle') {
         const perpX = -dirY;
@@ -3081,9 +4181,9 @@ export class ArenaScene extends Phaser.Scene {
       e.y += e.vy * dt;
 
       const emergeEase = 1 - Math.pow(1 - e.spawnProgress, 3);
-      const isColossal = e.bossRole !== 'none' || Boolean(e.def.isBoss);
+      const isColossal = e.bossRole !== 'none' || Boolean(e.def.isBoss) || Boolean(e.def.isSubBoss);
       const visualBase = isColossal
-        ? (e.def.isBoss ? e.def.scale : e.def.scale * 1.45) * 0.84
+        ? (e.def.isBoss || e.def.isSubBoss ? e.def.scale : e.def.scale * 1.45) * 0.84
         : (e.isElite ? e.def.scale * 1.24 : e.def.scale) * 0.78;
       const uniformScale = visualBase * (0.35 + 0.65 * emergeEase);
 
@@ -3096,6 +4196,8 @@ export class ArenaScene extends Phaser.Scene {
         e.sprite.setTintFill(0xffffff);
       } else if (e.spawnProgress < 1) {
         e.sprite.setTint(0x7c5a8a);
+      } else if (e.chillTimer > 0) {
+        e.sprite.setTint(0x80e5ff);
       } else if (e.burnTimer > 0) {
         e.sprite.setTint(0xff9f43);
       } else if (e.isElite) {
@@ -3105,19 +4207,20 @@ export class ArenaScene extends Phaser.Scene {
       }
 
       if (e.sprite.anims) {
-        e.sprite.anims.timeScale = 0.88 + Math.min(0.62, moveSpeed / 105);
+        e.sprite.anims.timeScale =
+          e.attackAnimTimer > 0 ? 1.15 : 0.88 + Math.min(0.62, moveSpeed / 105);
       }
 
       e.sprite
         .setPosition(e.x, e.y)
-        .setDepth(ySortDepth(e.y + 28, e.def.isBoss ? 2 : 0))
+        .setDepth(ySortDepth(e.y + 28, e.def.isBoss || e.def.isSubBoss ? 2 : 0))
         .setScale(uniformScale, uniformScale)
         .setAlpha(emergeEase)
         .setFlipX(dxHero < 0)
         .setRotation(0);
 
       e.shadow
-        .setPosition(e.x, e.y + (e.def.isBoss ? 52 : 30) * e.def.scale)
+        .setPosition(e.x, e.y + (e.def.isBoss ? 52 : e.def.isSubBoss ? 44 : 30) * e.def.scale)
         .setAlpha(0.58 * emergeEase);
 
       if (e.spawnProgress >= 0.85 && this.invulnTimer <= 0) {
@@ -3169,7 +4272,7 @@ export class ArenaScene extends Phaser.Scene {
   private killEnemyElegantly(enemy: EnemyRuntime): void {
     enemy.dying = true;
     this.kills += 1;
-    const isBossUnit = enemy.bossRole !== 'none' || Boolean(enemy.def.isBoss);
+    const isBossUnit = enemy.bossRole !== 'none' || Boolean(enemy.def.isBoss) || Boolean(enemy.def.isSubBoss);
     const soulGain =
       enemy.bossRole === 'final_40_boss'
         ? 300
@@ -3183,6 +4286,21 @@ export class ArenaScene extends Phaser.Scene {
                 ? 6
                 : 1;
     this.inventory.souls += Math.round(soulGain * this.difficultyDef.soulMult);
+
+    // Gold Coin drops! Guaranteed for elites, sub-bosses & bosses, ~32% for regular enemies
+    const baseGold = enemy.def.goldDrop ?? 8;
+    const shouldDropGold = isBossUnit || enemy.isElite || Math.random() < 0.32;
+    if (shouldDropGold) {
+      const goldVal = Math.max(
+        3,
+        Math.round(
+          baseGold *
+            (enemy.isElite ? 2.5 : 1) *
+            this.difficultyDef.soulMult
+        )
+      );
+      this.spawnGoldCoin(enemy.x + Phaser.Math.Between(-12, 12), enemy.y + 4, goldVal);
+    }
 
     const esc = this.getActEscalation();
     const baseXp =
@@ -3213,6 +4331,7 @@ export class ArenaScene extends Phaser.Scene {
           level: this.inventory.level,
           kills: this.kills,
           souls: this.inventory.souls,
+          gold: this.inventory.gold ?? 0,
           inventory: this.inventory,
         };
         this.time.delayedCall(550, () => {
@@ -3306,6 +4425,36 @@ export class ArenaScene extends Phaser.Scene {
     });
   }
 
+  private spawnGoldCoin(x: number, y: number, goldValue: number): void {
+    if (this.goldCoins.length > 180) {
+      const existing = this.goldCoins[this.goldCoins.length - 1];
+      existing.goldValue += goldValue;
+      existing.sprite.setScale(0.75);
+      return;
+    }
+
+    const sprite = this.add.image(x, y, 'pickup_gold_coin').setDepth(6).setScale(0.2);
+    const targetScale = goldValue >= 50 ? 0.72 : 0.56;
+    this.tweens.add({
+      targets: sprite,
+      scaleX: targetScale,
+      scaleY: targetScale,
+      y: { from: y - 14, to: y },
+      duration: 280,
+      ease: 'Back.easeOut',
+    });
+
+    this.goldCoins.push({
+      sprite,
+      x,
+      y,
+      goldValue,
+      magnetized: false,
+      magnetTime: 0,
+      bobSeed: Math.random() * Math.PI * 2,
+    });
+  }
+
   private spawnRelicChest(x: number, y: number): void {
     const glow = this.add
       .image(x, y, 'vfx_aura_ring')
@@ -3364,6 +4513,39 @@ export class ArenaScene extends Phaser.Scene {
       }
     }
 
+    for (let i = this.goldCoins.length - 1; i >= 0; i--) {
+      const c = this.goldCoins[i];
+      const dx = this.heroX - c.x;
+      const dy = this.heroY - c.y;
+      const dSq = dx * dx + dy * dy;
+
+      if (!c.magnetized && dSq <= magnetSq) {
+        c.magnetized = true;
+        c.magnetTime = 0;
+      }
+
+      if (c.magnetized) {
+        c.magnetTime += dt;
+        const dist = Math.sqrt(dSq) || 1;
+        const speed = 390 + c.magnetTime * 960;
+        c.x += (dx / dist) * speed * dt;
+        c.y += (dy / dist) * speed * dt;
+        c.sprite.setPosition(c.x, c.y);
+
+        if (dSq <= 24 * 24) {
+          c.sprite.destroy();
+          this.goldCoins.splice(i, 1);
+          this.inventory.gold = (this.inventory.gold ?? 0) + c.goldValue;
+          gothicAudio.playPickup(false);
+          if (c.goldValue >= 20) {
+            this.spawnFloatingNotice(this.heroX, this.heroY - 26, `+${c.goldValue} OURO`, '#ffd166');
+          }
+        }
+      } else {
+        c.sprite.y = c.y + Math.sin(time * 0.006 + c.bobSeed) * 2.4;
+      }
+    }
+
     for (let i = this.chests.length - 1; i >= 0; i--) {
       const c = this.chests[i];
       c.pulse += dt * 3.5;
@@ -3419,6 +4601,13 @@ export class ArenaScene extends Phaser.Scene {
       this.stats = computeEffectiveStats(this.inventory);
       const hpDelta = Math.max(0, this.stats.maxHp - prevMaxHp);
       this.hp = Math.min(this.stats.maxHp, this.hp + hpDelta + res.healedHp);
+      if (res.goldGained && res.goldGained > 0) {
+        this.spawnRingBurst(this.heroX, this.heroY, 0xffd166, 20);
+        this.spawnFloatingNotice(this.heroX, this.heroY - 36, `+${res.goldGained} OURO!`, '#ffd166');
+      } else if (picked.kind === 'blessing' && picked.blessingType === 'heal' && res.healedHp > 0) {
+        this.spawnRingBurst(this.heroX, this.heroY, 0x7effb2, 18);
+        this.spawnFloatingNotice(this.heroX, this.heroY - 36, `+${res.healedHp} VIDA!`, '#7effb2');
+      }
       this.modalPaused = false;
       this.callbacks?.onSaveRunCheckpoint?.(this.exportRunCheckpoint());
       this.pushHudUpdate();
@@ -3499,6 +4688,7 @@ export class ArenaScene extends Phaser.Scene {
         level: this.inventory.level,
         kills: this.kills,
         souls: this.inventory.souls,
+        gold: this.inventory.gold ?? 0,
         inventory: this.inventory,
       });
     });
@@ -3640,7 +4830,7 @@ export class ArenaScene extends Phaser.Scene {
   private pushHudUpdate(): void {
     let activeBoss: EnemyRuntime | undefined;
     for (const e of this.enemies) {
-      if (e.active && !e.dying && (e.bossRole !== 'none' || e.def.isBoss)) {
+      if (e.active && !e.dying && (e.bossRole !== 'none' || e.def.isBoss || e.def.isSubBoss)) {
         activeBoss = e;
         break;
       }
@@ -3664,6 +4854,7 @@ export class ArenaScene extends Phaser.Scene {
       stageDurationSeconds: this.stageDef.durationSeconds,
       kills: this.kills,
       souls: this.inventory.souls,
+      gold: this.inventory.gold ?? 0,
       dashReadyRatio: 1 - Phaser.Math.Clamp(this.dashCooldownTimer / 2.4, 0, 1),
       dashCooldownRemaining: Math.max(0, this.dashCooldownTimer),
       stageName: this.stageDef.name,
