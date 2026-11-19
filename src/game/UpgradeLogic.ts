@@ -115,11 +115,11 @@ export interface UpgradeChoice {
 }
 
 export function xpRequiredForLevel(level: number): number {
-  if (level <= 1) return 8;
-  if (level <= 12) return Math.round(8 + (level - 1) * 7);
-  if (level <= 38) return Math.round(85 + (level - 12) * 12);
-  if (level <= 70) return Math.round(397 + (level - 38) * 18);
-  return Math.round(973 + (level - 70) * 24);
+  if (level <= 1) return 18;
+  if (level <= 10) return Math.round(18 + (level - 1) * 22 + Math.pow(level - 1, 1.75) * 6);
+  if (level <= 25) return Math.round(490 + (level - 10) * 58 + Math.pow(level - 10, 1.82) * 9);
+  if (level <= 50) return Math.round(2600 + (level - 25) * 125 + Math.pow(level - 25, 1.85) * 12);
+  return Math.round(10350 + (level - 50) * 240);
 }
 
 export function createInitialInventory(
@@ -294,8 +294,9 @@ export function buildUpgradeChoices(
   // guaranteeing that all 6 weapon slots can ALWAYS acquire their catalyst relic and evolve!
   const lockToActivePairs = activePairs.size >= MAX_WEAPON_SLOTS;
 
-  // Ready Ultimates can awaken right on Level-Up (as well as from Relic Chests)!
-  const readyUltimates = getAvailableUltimates(inv);
+  // Ready Ultimates awaken on Level-Up once hero reaches mid/late game (Lv.16+) or from Boss Relic Chests!
+  const allowLevelUpUltimates = !inv.unlockedWeapons || inv.level >= 16;
+  const readyUltimates = allowLevelUpUltimates ? getAvailableUltimates(inv) : [];
   for (const ultId of readyUltimates) {
     const ultDef = WEAPONS[ultId];
     const evoDef = ultDef.ultimateOf ? WEAPONS[ultDef.ultimateOf] : undefined;
@@ -548,9 +549,11 @@ export function applyUpgradeChoice(
 
 export function resolveRelicChest(
   inv: InventoryState,
-  rng: () => number = Math.random
+  rng: () => number = Math.random,
+  allowEvolution = true,
+  allowUltimate = true
 ): UpgradeChoice {
-  const ultimates = getAvailableUltimates(inv);
+  const ultimates = allowUltimate ? getAvailableUltimates(inv) : [];
   if (ultimates.length > 0) {
     const ultId = ultimates[Math.floor(rng() * ultimates.length)];
     const ultDef = WEAPONS[ultId];
@@ -569,7 +572,7 @@ export function resolveRelicChest(
     };
   }
 
-  const evolutions = getAvailableEvolutions(inv);
+  const evolutions = allowEvolution ? getAvailableEvolutions(inv) : [];
   if (evolutions.length > 0) {
     const evoId = evolutions[Math.floor(rng() * evolutions.length)];
     const evoDef = WEAPONS[evoId];
@@ -611,23 +614,39 @@ export interface IntraMatchEscalation {
 }
 
 /**
- * Computes adaptive enemy pressure based on hero level, Evolved/Ultimate awakenings,
- * and Limit Break stacks so late-game builds always face a fierce challenge.
+ * Computes adaptive enemy pressure based on hero level, total weapon/relic upgrades,
+ * Evolved/Ultimate awakenings, and Limit Break stacks so the horde always pushes back fiercely.
  */
 export function computePlayerPowerPressure(inv: InventoryState): number {
   let evolvedCount = 0;
   let ultimateCount = 0;
+  let totalWeaponLevels = 0;
   for (const wId of Object.keys(inv.weapons) as WeaponId[]) {
+    const lv = inv.weapons[wId] ?? 0;
+    if (lv <= 0) continue;
     const def = WEAPONS[wId];
-    if (def.isUltimate) ultimateCount += 1;
-    else if (def.isEvolved) evolvedCount += 1;
+    if (def.isUltimate) {
+      ultimateCount += 1;
+      totalWeaponLevels += 8;
+    } else if (def.isEvolved) {
+      evolvedCount += 1;
+      totalWeaponLevels += 5 + lv;
+    } else {
+      totalWeaponLevels += lv;
+    }
+  }
+  let totalRelicLevels = 0;
+  for (const rId of Object.keys(inv.relics) as RelicId[]) {
+    totalRelicLevels += inv.relics[rId] ?? 0;
   }
   return (
     1 +
-    Math.max(0, inv.level - 3) * 0.045 +
-    evolvedCount * 0.28 +
-    ultimateCount * 0.65 +
-    (inv.ascensionMight ?? 0) * 1.2
+    Math.max(0, inv.level - 2) * 0.12 +
+    Math.max(0, totalWeaponLevels - 1) * 0.14 +
+    totalRelicLevels * 0.1 +
+    evolvedCount * 0.95 +
+    ultimateCount * 2.1 +
+    (inv.ascensionMight ?? 0) * 1.8
   );
 }
 
@@ -654,19 +673,19 @@ export function computeIntraMatchEscalation(
           ? 'Ato III · Noite Profunda'
           : 'Ato IV · Apocalipse Carmesim';
 
-  const timeHp = 1 + mins * 0.28 + Math.pow(mins, d.timeRampExponent) * 0.075;
+  const timeHp = 1 + mins * 0.58 + Math.pow(mins, d.timeRampExponent) * 0.22;
   const hpMult = timeHp * powerPressure * d.hpMult;
-  const dmgMult = (1 + mins * 0.085 + Math.pow(mins / 8, 1.4) * 0.42) * d.dmgMult;
-  const spdMult = Math.min(1.95, (1 + mins * 0.016) * d.spdMult);
-  const xpMult = (1.1 + mins * 0.085) * d.xpMult;
-  const knockbackBonus = Math.min(0.45, mins * 0.013);
+  const dmgMult = (1 + mins * 0.15 + Math.pow(mins / 5, 1.45) * 0.58) * d.dmgMult;
+  const spdMult = Math.min(2.8, (1 + mins * 0.025) * d.spdMult);
+  const xpMult = (0.62 + mins * 0.012) * d.xpMult;
+  const knockbackBonus = Math.min(0.55, mins * 0.016);
   const maxHorde = Math.min(
-    640,
-    Math.round((78 + mins * 15.5 + Math.pow(mins, 1.32) * 2.1) * d.hordeMult)
+    680,
+    Math.round((96 + mins * 22 + Math.pow(mins, 1.36) * 3.0) * d.hordeMult)
   );
   const spawnsPerSecond =
-    (4.2 + mins * 0.92 + Math.pow(mins / 5, 1.45) * 1.35) * d.spawnRateMult;
-  const packSize = 1 + Math.floor(mins / 4);
+    (5.2 + mins * 1.35 + Math.pow(mins / 4, 1.48) * 1.75) * d.spawnRateMult;
+  const packSize = 1 + Math.floor(mins / 3);
 
   return {
     act,

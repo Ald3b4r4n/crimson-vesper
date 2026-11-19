@@ -1771,11 +1771,11 @@ export class ArenaScene extends Phaser.Scene {
     this.spawnAccumulator += spawnsPerSecond * dt;
 
     const pool = this.stageDef.enemyPool;
-    const unlockedCount = Math.min(pool.length, Math.max(3, 3 + Math.floor(elapsedMins / 4)));
+    const unlockedCount = Math.min(pool.length, Math.max(3, 3 + Math.floor(elapsedMins / 2.2)));
 
     while (this.spawnAccumulator >= 1 && this.enemies.length < maxActiveEnemies) {
       this.spawnAccumulator -= 1;
-      const biasPow = elapsedMins < 8 ? 1.5 : elapsedMins < 20 ? 1.12 : 0.84;
+      const biasPow = elapsedMins < 3 ? 1.35 : elapsedMins < 12 ? 1.02 : 0.78;
       const idx = Math.min(unlockedCount - 1, Math.floor(Math.pow(Math.random(), biasPow) * unlockedCount));
       const kind = pool[idx];
       for (let p = 0; p < esc.packSize && this.enemies.length < maxActiveEnemies; p++) {
@@ -1845,19 +1845,19 @@ export class ArenaScene extends Phaser.Scene {
 
     const baseRoleHpMult: Record<BossRole, number> = {
       none: 1,
-      sub_boss: def.isBoss ? 1.15 : 8.5,
-      act_10_boss: 2.1,
-      major_20_boss: 4.4,
-      major_30_boss: 6.2,
-      final_40_boss: 8.8,
+      sub_boss: def.isBoss ? 1.85 : 11.0,
+      act_10_boss: 3.2,
+      major_20_boss: 5.8,
+      major_30_boss: 8.2,
+      final_40_boss: 11.5,
     };
 
-    const eliteMult = isElite ? 3.2 : 1.0;
+    const eliteMult = isElite ? 3.4 : 1.0;
     const scaledHp = Math.round(
       def.hp *
         this.stageDef.difficultyMult *
         (isBossUnit
-          ? baseRoleHpMult[bossRole] * Math.max(1.2, esc.hpMult * 0.42)
+          ? baseRoleHpMult[bossRole] * Math.max(1.4, esc.hpMult * 0.95)
           : esc.hpMult * eliteMult)
     );
     const visualScale = isBossUnit
@@ -3180,8 +3180,14 @@ export class ArenaScene extends Phaser.Scene {
     this.inventory.souls += Math.round(soulGain * this.difficultyDef.soulMult);
 
     const esc = this.getActEscalation();
-    const eliteXpMult = enemy.isElite ? 3.0 : isBossUnit ? 2.2 : 1.0;
-    const xpReward = Math.max(1, Math.round(enemy.def.xpValue * esc.xpMult * eliteXpMult));
+    const baseXp =
+      enemy.bossRole === 'sub_boss'
+        ? Math.min(28, enemy.def.xpValue)
+        : isBossUnit
+          ? Math.min(95, enemy.def.xpValue)
+          : enemy.def.xpValue;
+    const eliteXpMult = enemy.isElite ? 2.2 : 1.0;
+    const xpReward = Math.max(1, Math.round(baseXp * esc.xpMult * eliteXpMult));
     this.spawnXpGem(enemy.x, enemy.y, xpReward, isBossUnit || enemy.isElite ? 'ruby' : enemy.def.gemTier);
 
     if (isBossUnit) {
@@ -3421,7 +3427,9 @@ export class ArenaScene extends Phaser.Scene {
   private openRelicChestModal(): void {
     this.modalPaused = true;
     gothicAudio.playChest();
-    const reward = resolveRelicChest(this.inventory);
+    const allowEvo = this.elapsedSeconds >= 360 || this.inventory.level >= 10;
+    const allowUlt = this.elapsedSeconds >= 840 || this.inventory.level >= 16;
+    const reward = resolveRelicChest(this.inventory, Math.random, allowEvo, allowUlt);
     const prevMaxHp = this.stats.maxHp;
     const res = applyUpgradeChoice(this.inventory, reward);
     this.stats = computeEffectiveStats(this.inventory);

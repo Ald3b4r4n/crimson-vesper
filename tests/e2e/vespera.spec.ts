@@ -83,6 +83,7 @@ test('verifies 4 difficulties, 36 Ultimate Power Grid icons, dense forest & fire
   await expect(page.locator('.showcase-panel')).toContainText('encaracolados');
   await page.getByTestId('hero-card-antonio').click();
   await expect(page.locator('.showcase-panel')).toContainText('Antonio Cruz');
+  await expect(page.locator('.hero-live-sprite')).toHaveCSS('background-size', '1792px 112px');
   await expect(page.getByTestId('difficulty-normal')).toBeVisible();
   await expect(page.getByTestId('difficulty-hard')).toBeVisible();
   await expect(page.getByTestId('difficulty-epic')).toBeVisible();
