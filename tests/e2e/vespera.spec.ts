@@ -11,7 +11,21 @@ test('verifies 4 difficulties, 36 Ultimate Power Grid icons, dense forest & fire
   await expect(page.locator('.title-main')).toHaveText('VESPERA');
   await expect(page.getByTestId('menu-play-btn')).toBeVisible();
   await expect(page.getByTestId('tab-powers')).toBeVisible();
+  await expect(page.getByTestId('open-save-modal-btn')).toBeVisible();
   await expect(page.getByTestId('fullscreen-btn')).toBeVisible();
+
+  // Test Save Game Modal (3 slots, manual save, JSON export)
+  await page.getByTestId('open-save-modal-btn').click();
+  await expect(page.getByTestId('save-game-modal')).toBeVisible();
+  await expect(page.getByTestId('save-slot-0')).toBeVisible();
+  await expect(page.getByTestId('save-slot-1')).toBeVisible();
+  await expect(page.getByTestId('save-slot-2')).toBeVisible();
+  await page.getByTestId('manual-save-btn').click();
+  await expect(page.getByTestId('save-status-msg')).toContainText('salvo');
+  await page.getByTestId('export-save-btn').click();
+  await expect(page.getByTestId('save-json-textarea')).toContainText('totalSouls');
+  await page.locator('[data-close-save-modal]').click();
+  await expect(page.getByTestId('save-game-modal')).toBeHidden();
   await page.screenshot({ path: 'test-results/preview-splash-menu.png' });
 
   // 2. Redesigned Power Grid, Out-of-Game Forge & Ultimate Matrix (36 custom .webp icons: Base + Relic -> Evolved -> Ultimate)
@@ -36,6 +50,9 @@ test('verifies 4 difficulties, 36 Ultimate Power Grid icons, dense forest & fire
   await page.getByTestId('power-tile-bible').click();
   await expect(page.getByTestId('forge-upgrade-btn')).toBeDisabled();
   await expect(page.getByTestId('forge-upgrade-btn')).toContainText('Fase I');
+  await expect(page.getByTestId('arsenal-stage-weapons-list')).toBeVisible();
+  await expect(page.getByTestId('arsenal-stage-weapons-list')).toContainText('Bíblia das Cinzas');
+  await expect(page.getByTestId('arsenal-stage-weapons-list')).toContainText('Turíbulo Sagrado');
   await page.screenshot({ path: 'test-results/preview-power-grid.png' });
 
   // Return to Splash, then enter Hero Select -> verify all 8 Heroes (incl. Mordred, LinK, Antonio Cruz, Luisa Cruz) & Difficulty Selector
@@ -63,7 +80,10 @@ test('verifies 4 difficulties, 36 Ultimate Power Grid icons, dense forest & fire
   await page.getByTestId('go-stage-select-btn').click();
   await expect(page.getByTestId('stage-card-forest')).toBeVisible();
   await page.getByTestId('stage-card-forest').click();
+  await expect(page.getByTestId('stage-card-forest')).toContainText('Bíblia das Cinzas');
   await expect(page.getByTestId('stage-hidden-weapon-info')).toContainText('Bíblia das Cinzas');
+  await expect(page.getByTestId('stage-weapons-guide')).toBeVisible();
+  await expect(page.getByTestId('stage-weapons-guide')).toContainText('Turíbulo Sagrado');
   await expect(page.locator('.showcase-footer')).toContainText('40:00');
   await expect(page.locator('.showcase-footer')).toContainText('HOLI SHIT!');
   await page.screenshot({ path: 'test-results/preview-stage-select.png' });
@@ -94,7 +114,19 @@ test('verifies 4 difficulties, 36 Ultimate Power Grid icons, dense forest & fire
 
   await page.getByTestId('pause-btn').click();
   await expect(page.getByTestId('pause-modal')).toBeVisible();
+  await page.getByTestId('pause-save-run-btn').click();
+  await expect(page.getByTestId('pause-save-status')).toContainText('Vigília salva');
   await expect(page.locator('[data-quit-btn]')).toHaveText('Sair e retornar ao menu');
+  await page.locator('[data-quit-btn]').click();
+  await expect(page.getByTestId('title-screen')).toBeVisible({ timeout: 5000 });
+
+  // Resume the saved mid-run checkpoint from Splash Screen!
+  await page.waitForTimeout(400);
+  await expect(page.getByTestId('continue-saved-run-btn')).toBeVisible();
+  await page.getByTestId('continue-saved-run-btn').click();
+  await expect(page.getByTestId('arena-hud')).toBeVisible({ timeout: 5000 });
+  await expect(page.locator('[data-clock-phase]')).toContainText('HOLI SHIT!');
+  await page.getByTestId('pause-btn').click();
   await page.locator('[data-quit-btn]').click();
   await expect(page.getByTestId('title-screen')).toBeVisible({ timeout: 5000 });
 

@@ -96,6 +96,20 @@ export type BossRole =
   | 'major_30_boss'
   | 'final_40_boss';
 
+export interface SavedActiveRun {
+  savedAt: string;
+  heroId: HeroId;
+  stageId: StageId;
+  difficultyId: DifficultyId;
+  elapsedSeconds: number;
+  hp: number;
+  kills: number;
+  inventory: InventoryState;
+  hiddenAltarClaimed: boolean;
+  spawnedMilestones: string[];
+  subBossWaveIndex: number;
+}
+
 export interface ArenaCallbacks {
   onHudUpdate: (snapshot: HudSnapshot) => void;
   onLevelUpChoices: (choices: UpgradeChoice[], onPick: (choice: UpgradeChoice) => void) => void;
@@ -108,6 +122,7 @@ export interface ArenaCallbacks {
     onFinishStageNow: () => void
   ) => void;
   onWeaponDiscovered?: (weaponId: BaseWeaponId) => void;
+  onSaveRunCheckpoint?: (checkpoint: SavedActiveRun | null) => void;
   onRunEnded: (summary: RunSummary) => void;
 }
 
@@ -292,8 +307,13 @@ export class ArenaScene extends Phaser.Scene {
   // Stage-Hidden Weapon Altar & Meta Progression
   private metaUnlockedWeapons: BaseWeaponId[] = [...DEFAULT_UNLOCKED_WEAPONS];
   private metaWeaponForge: Partial<Record<BaseWeaponId, number>> = {};
+  private resumeCheckpoint?: SavedActiveRun;
+  private autoSaveTimer = 0;
   private hiddenAltarClaimed = false;
   private hiddenAltarSprite?: Phaser.GameObjects.Image;
+  private hiddenAltarBeam?: Phaser.GameObjects.Image;
+  private hiddenAltarHalo?: Phaser.GameObjects.Image;
+  private hiddenAltarWeaponIcon?: Phaser.GameObjects.Image;
   private hiddenAltarGlow?: Phaser.GameObjects.Image;
   private hiddenAltarShadow?: Phaser.GameObjects.Image;
   private hiddenAltarLabel?: Phaser.GameObjects.Text;
@@ -369,7 +389,8 @@ export class ArenaScene extends Phaser.Scene {
     metaProgression?: {
       unlockedWeapons: BaseWeaponId[];
       weaponForge: Partial<Record<BaseWeaponId, number>>;
-    }
+    },
+    resumeCheckpoint?: SavedActiveRun
   ): void {
     this.heroId = heroId;
     this.stageDef = STAGES.find((s) => s.id === stageId) ?? STAGES[0];
@@ -380,6 +401,31 @@ export class ArenaScene extends Phaser.Scene {
       ? [...metaProgression.unlockedWeapons]
       : [...DEFAULT_UNLOCKED_WEAPONS];
     this.metaWeaponForge = metaProgression?.weaponForge ? { ...metaProgression.weaponForge } : {};
+    this.resumeCheckpoint = resumeCheckpoint;
+  }
+
+  exportRunCheckpoint(): SavedActiveRun | null {
+    if (!this.inventory || this.runEnded || this.hp <= 0) return null;
+    const clonedInv: InventoryState = {
+      ...this.inventory,
+      weapons: { ...this.inventory.weapons },
+      relics: { ...this.inventory.relics },
+      unlockedWeapons: this.inventory.unlockedWeapons ? [...this.inventory.unlockedWeapons] : undefined,
+      weaponForge: this.inventory.weaponForge ? { ...this.inventory.weaponForge } : undefined,
+    };
+    return {
+      savedAt: new Date().toISOString(),
+      heroId: this.heroId,
+      stageId: this.stageDef.id,
+      difficultyId: this.difficultyId,
+      elapsedSeconds: this.elapsedSeconds,
+      hp: Math.max(1, Math.round(this.hp)),
+      kills: this.kills,
+      inventory: clonedInv,
+      hiddenAltarClaimed: this.hiddenAltarClaimed,
+      spawnedMilestones: Array.from(this.spawnedMilestones),
+      subBossWaveIndex: this.subBossWaveIndex,
+    };
   }
 
   setVirtualJoystick(dx: number, dy: number): void {
@@ -424,6 +470,9 @@ export class ArenaScene extends Phaser.Scene {
   toggleUserPause(): boolean {
     if (this.runEnded || this.modalPaused) return this.userPaused;
     this.userPaused = !this.userPaused;
+    if (this.userPaused) {
+      this.callbacks?.onSaveRunCheckpoint?.(this.exportRunCheckpoint());
+    }
     this.callbacks?.onPauseChanged(this.userPaused);
     return this.userPaused;
   }
@@ -431,6 +480,9 @@ export class ArenaScene extends Phaser.Scene {
   setUserPause(paused: boolean): void {
     if (this.runEnded) return;
     this.userPaused = paused;
+    if (this.userPaused) {
+      this.callbacks?.onSaveRunCheckpoint?.(this.exportRunCheckpoint());
+    }
     this.callbacks?.onPauseChanged(this.userPaused);
   }
 
@@ -460,21 +512,55 @@ export class ArenaScene extends Phaser.Scene {
     this.hordeSurgeTimer = this.difficultyDef.surgeIntervalSec;
     this.subBossTimer = Math.round(this.difficultyDef.subBossIntervalSec * 0.85);
     this.subBossWaveIndex = 0;
+    this.autoSaveTimer = 0;
     this.hiddenAltarClaimed = false;
     this.hiddenAltarSprite = undefined;
+    this.hiddenAltarBeam = undefined;
+    this.hiddenAltarHalo = undefined;
+    this.hiddenAltarWeaponIcon = undefined;
     this.hiddenAltarGlow = undefined;
     this.hiddenAltarShadow = undefined;
     this.hiddenAltarLabel = undefined;
     this.compassArrowSprite = undefined;
 
-    this.inventory = createInitialInventory(
-      this.heroId,
-      this.metaUnlockedWeapons,
-      this.metaWeaponForge
-    );
-    this.stats = computeEffectiveStats(this.inventory);
-    this.hp = this.stats.maxHp;
-    this.trailingHp = this.hp;
+    const resumed = this.resumeCheckpoint;
+    this.resumeCheckpoint = undefined;
+
+    if (resumed) {
+      this.inventory = {
+        ...resumed.inventory,
+        heroId: this.heroId,
+        weapons: { ...resumed.inventory.weapons },
+        relics: { ...resumed.inventory.relics },
+        unlockedWeapons: Array.from(
+          new Set([
+            ...(resumed.inventory.unlockedWeapons ?? this.metaUnlockedWeapons),
+            ...this.metaUnlockedWeapons,
+          ])
+        ),
+        weaponForge: { ...this.metaWeaponForge },
+      };
+      this.stats = computeEffectiveStats(this.inventory);
+      this.hp = Math.min(this.stats.maxHp, Math.max(1, resumed.hp));
+      this.trailingHp = this.hp;
+      this.elapsedSeconds = Math.max(0, resumed.elapsedSeconds);
+      this.kills = Math.max(0, resumed.kills);
+      this.hiddenAltarClaimed = Boolean(resumed.hiddenAltarClaimed);
+      this.spawnedMilestones = new Set(resumed.spawnedMilestones ?? []);
+      this.subBossWaveIndex = resumed.subBossWaveIndex ?? 0;
+    } else {
+      this.inventory = createInitialInventory(
+        this.heroId,
+        this.metaUnlockedWeapons,
+        this.metaWeaponForge
+      );
+      this.stats = computeEffectiveStats(this.inventory);
+      this.hp = this.stats.maxHp;
+      this.trailingHp = this.hp;
+      this.elapsedSeconds = 0;
+      this.kills = 0;
+    }
+
     this.heroX = 0;
     this.heroY = 0;
     this.heroVx = 0;
@@ -482,8 +568,6 @@ export class ArenaScene extends Phaser.Scene {
     this.facing = 1;
     this.aimX = 1;
     this.aimY = 0;
-    this.elapsedSeconds = 0;
-    this.kills = 0;
     this.spawnAccumulator = 0;
     this.invulnTimer = 0;
     this.dashCooldownTimer = 0;
@@ -493,6 +577,11 @@ export class ArenaScene extends Phaser.Scene {
     this.modalPaused = false;
     this.userPaused = false;
     this.runEnded = false;
+
+    const bannerTitle = resumed
+      ? `VIGÍLIA RETOMADA · Fase ${this.stageDef.roman}`
+      : `Fase ${this.stageDef.roman} · ${this.stageDef.name}`;
+    const bannerSub = resumed ? 'Save carregado com sucesso!' : this.stageDef.subtitle;
 
     gothicSoundtrack.playStageMusic(this.stageDef.id);
 
@@ -611,10 +700,7 @@ export class ArenaScene extends Phaser.Scene {
       this.spawnEnemyAroundHero(starterKind);
     }
 
-    this.callbacks?.onBannerAnnouncement(
-      `Fase ${this.stageDef.roman} · ${this.stageDef.name}`,
-      this.stageDef.subtitle
-    );
+    this.callbacks?.onBannerAnnouncement(bannerTitle, bannerSub);
     this.pushHudUpdate();
   }
 
@@ -770,46 +856,79 @@ export class ArenaScene extends Phaser.Scene {
 
   private spawnHiddenWeaponAltar(): void {
     const pos = this.stageDef.hiddenAltarPos;
-    const wDef = WEAPONS[this.stageDef.hiddenWeapon];
-    const alreadyUnlocked = this.metaUnlockedWeapons.includes(this.stageDef.hiddenWeapon);
+    const wId = this.stageDef.hiddenWeapon;
+    const wDef = WEAPONS[wId];
+    const alreadyUnlocked = this.metaUnlockedWeapons.includes(wId);
+    const claimed = this.hiddenAltarClaimed;
 
     this.hiddenAltarShadow = this.add
-      .image(pos.x, pos.y + 42, 'vfx_shadow')
+      .image(pos.x, pos.y + 44, 'vfx_shadow')
       .setDepth(3)
-      .setScale(1.6, 1.0)
-      .setAlpha(0.65);
+      .setScale(1.85, 1.05)
+      .setAlpha(0.7);
+
+    if (!claimed) {
+      this.hiddenAltarBeam = this.add
+        .image(pos.x, pos.y - 84, 'vfx_reliquary_beam')
+        .setDepth(ySortDepth(pos.y, -0.06))
+        .setScale(1.05, 1.0)
+        .setTint(alreadyUnlocked ? 0x67d4ff : 0xffd166)
+        .setAlpha(0.72)
+        .setBlendMode(Phaser.BlendModes.ADD);
+    }
 
     this.hiddenAltarGlow = this.add
-      .image(pos.x, pos.y - 12, 'vfx_aura_ring')
+      .image(pos.x, pos.y - 16, 'vfx_aura_ring')
       .setDepth(ySortDepth(pos.y, -0.04))
-      .setScale(0.75)
-      .setTint(alreadyUnlocked ? 0x67d4ff : 0xffd166)
-      .setAlpha(0.76)
+      .setScale(claimed ? 0.45 : 0.88)
+      .setTint(claimed || alreadyUnlocked ? 0x67d4ff : 0xffd166)
+      .setAlpha(claimed ? 0.28 : 0.8)
       .setBlendMode(Phaser.BlendModes.ADD);
 
     this.hiddenAltarSprite = this.add
       .image(pos.x, pos.y, 'prop_weapon_altar')
       .setDepth(ySortDepth(pos.y + 30))
-      .setScale(1.0);
+      .setScale(0.95)
+      .setTint(claimed ? 0x7c8ea6 : 0xffffff)
+      .setAlpha(claimed ? 0.72 : 1);
+
+    if (!claimed) {
+      this.hiddenAltarHalo = this.add
+        .image(pos.x, pos.y - 46, 'vfx_reliquary_halo')
+        .setDepth(ySortDepth(pos.y + 30, 0.2))
+        .setScale(0.62)
+        .setTint(alreadyUnlocked ? 0x9ef0ff : 0xffe066)
+        .setBlendMode(Phaser.BlendModes.ADD);
+
+      const iconTex = `weapon_icon_${wId}`;
+      if (this.textures.exists(iconTex)) {
+        this.hiddenAltarWeaponIcon = this.add
+          .image(pos.x, pos.y - 46, iconTex)
+          .setDepth(ySortDepth(pos.y + 30, 0.3))
+          .setDisplaySize(32, 32);
+      }
+    }
 
     this.hiddenAltarLabel = this.add
-      .text(pos.x, pos.y - 62, `✦ ${wDef.name}`, {
+      .text(pos.x, pos.y - 80, claimed ? `✦ ${wDef.name} (Liberada)` : `✦ ${wDef.name}`, {
         fontFamily: 'Cinzel, Georgia, serif',
         fontSize: '13px',
         fontStyle: 'bold',
-        color: alreadyUnlocked ? '#9ef0ff' : '#ffe79e',
+        color: claimed || alreadyUnlocked ? '#9ef0ff' : '#ffe79e',
         stroke: '#120710',
         strokeThickness: 3.5,
       })
       .setOrigin(0.5)
       .setDepth(30);
 
-    this.compassArrowSprite = this.add
-      .image(this.heroX + 76, this.heroY, 'vfx_compass_arrow')
-      .setDepth(31)
-      .setTint(alreadyUnlocked ? 0x67d4ff : 0xffe066)
-      .setScale(1.05)
-      .setAlpha(0.92);
+    if (!claimed) {
+      this.compassArrowSprite = this.add
+        .image(this.heroX + 76, this.heroY, 'vfx_compass_arrow')
+        .setDepth(31)
+        .setTint(alreadyUnlocked ? 0x67d4ff : 0xffe066)
+        .setScale(1.05)
+        .setAlpha(0.92);
+    }
   }
 
   private claimHiddenWeaponAltar(): void {
@@ -848,6 +967,25 @@ export class ArenaScene extends Phaser.Scene {
 
     this.hiddenAltarGlow?.setTint(0x67d4ff).setAlpha(0.28).setScale(0.45);
     this.hiddenAltarSprite?.setTint(0x7c8ea6).setAlpha(0.72);
+    this.hiddenAltarBeam?.destroy();
+    this.hiddenAltarBeam = undefined;
+    this.hiddenAltarHalo?.destroy();
+    this.hiddenAltarHalo = undefined;
+    if (this.hiddenAltarWeaponIcon) {
+      const iconSpr = this.hiddenAltarWeaponIcon;
+      this.hiddenAltarWeaponIcon = undefined;
+      this.tweens.add({
+        targets: iconSpr,
+        x: this.heroX,
+        y: this.heroY - 12,
+        scaleX: 0.25,
+        scaleY: 0.25,
+        alpha: 0,
+        duration: 420,
+        ease: 'Cubic.easeIn',
+        onComplete: () => iconSpr.destroy(),
+      });
+    }
     this.hiddenAltarLabel?.setText(`✦ ${wDef.name} (Liberada)`).setColor('#9ef0ff');
     this.compassArrowSprite?.destroy();
     this.compassArrowSprite = undefined;
@@ -859,6 +997,7 @@ export class ArenaScene extends Phaser.Scene {
       `ARMA SECRETA LIBERADA: ${wDef.name.toUpperCase()}`,
       `Descoberta em ${this.stageDef.hiddenAltarName} e disponível na Forja!`
     );
+    this.callbacks?.onSaveRunCheckpoint?.(this.exportRunCheckpoint());
     this.pushHudUpdate();
   }
 
@@ -901,6 +1040,12 @@ export class ArenaScene extends Phaser.Scene {
     if (this.hudSyncTimer >= 0.1) {
       this.hudSyncTimer = 0;
       this.pushHudUpdate();
+    }
+
+    this.autoSaveTimer += dt;
+    if (this.autoSaveTimer >= 15) {
+      this.autoSaveTimer = 0;
+      this.callbacks?.onSaveRunCheckpoint?.(this.exportRunCheckpoint());
     }
   }
 
@@ -1284,10 +1429,39 @@ export class ArenaScene extends Phaser.Scene {
       const ang = Math.atan2(ady, adx);
 
       this.hiddenAltarGlow
-        ?.setScale(0.72 + Math.sin(time * 0.005) * 0.1)
+        ?.setScale(0.84 + Math.sin(time * 0.005) * 0.1)
         .setRotation(time * 0.0008);
+      if (this.hiddenAltarBeam) {
+        this.hiddenAltarBeam
+          .setAlpha(0.58 + Math.sin(time * 0.004) * 0.18)
+          .setScale(0.95 + Math.sin(time * 0.006) * 0.1, 1.0);
+      }
+      const bobY = Math.sin(time * 0.004) * 5;
+      if (this.hiddenAltarHalo) {
+        this.hiddenAltarHalo
+          .setPosition(altarPos.x, altarPos.y - 46 + bobY)
+          .setRotation(-time * 0.0012);
+      }
+      if (this.hiddenAltarWeaponIcon) {
+        this.hiddenAltarWeaponIcon.setPosition(altarPos.x, altarPos.y - 46 + bobY);
+      }
       if (this.hiddenAltarLabel) {
-        this.hiddenAltarLabel.y = altarPos.y - 62 + Math.sin(time * 0.004) * 3;
+        this.hiddenAltarLabel.y = altarPos.y - 80 + bobY * 0.5;
+      }
+
+      if (
+        Math.random() < 0.14 &&
+        Math.abs(adx) < cam.width * 0.65 &&
+        Math.abs(ady) < cam.height * 0.65
+      ) {
+        this.spawnPhysicsFlame(
+          altarPos.x + Phaser.Math.FloatBetween(-18, 18),
+          altarPos.y - 26,
+          Phaser.Math.FloatBetween(-12, 12),
+          Phaser.Math.FloatBetween(-42, -18),
+          'torch',
+          0.45
+        );
       }
 
       if (this.compassArrowSprite) {
@@ -3225,6 +3399,7 @@ export class ArenaScene extends Phaser.Scene {
       const hpDelta = Math.max(0, this.stats.maxHp - prevMaxHp);
       this.hp = Math.min(this.stats.maxHp, this.hp + hpDelta + res.healedHp);
       this.modalPaused = false;
+      this.callbacks?.onSaveRunCheckpoint?.(this.exportRunCheckpoint());
       this.pushHudUpdate();
 
       if (this.pendingLevelUps > 0 && !this.runEnded) {
@@ -3246,6 +3421,7 @@ export class ArenaScene extends Phaser.Scene {
     if (res.evolvedWeapon) {
       this.spawnRingBurst(this.heroX, this.heroY, 0xff2a55, 32);
     }
+    this.callbacks?.onSaveRunCheckpoint?.(this.exportRunCheckpoint());
     this.pushHudUpdate();
 
     this.callbacks?.onRelicChestOpen(reward, () => {
@@ -3273,6 +3449,7 @@ export class ArenaScene extends Phaser.Scene {
   private finishRun(victory: boolean): void {
     if (this.runEnded) return;
     this.runEnded = true;
+    this.callbacks?.onSaveRunCheckpoint?.(null);
     this.pushHudUpdate();
 
     if (!victory) {

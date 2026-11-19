@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { BaseWeaponId, DifficultyId, HeroId, StageId } from './data/loreData';
-import { ArenaCallbacks, ArenaScene } from './scenes/ArenaScene';
+import { ArenaCallbacks, ArenaScene, SavedActiveRun } from './scenes/ArenaScene';
 import './styles.css';
 import { UIManager } from './ui/UIManager';
 import { ViewportManager } from './ui/ViewportManager';
@@ -49,11 +49,19 @@ new UIManager(uiLayer, viewport, {
     metaProgression?: {
       unlockedWeapons: BaseWeaponId[];
       weaponForge: Partial<Record<BaseWeaponId, number>>;
-    }
+    },
+    resumeCheckpoint?: SavedActiveRun
   ) => {
     const sz = viewport.getWorldSize();
     game.scale.resize(sz.width, sz.height);
-    arenaScene.configureRun(heroId, stageId, difficultyId, callbacks, metaProgression);
+    arenaScene.configureRun(
+      heroId,
+      stageId,
+      difficultyId,
+      callbacks,
+      metaProgression,
+      resumeCheckpoint
+    );
     if (game.scene.isActive('ArenaScene') || game.scene.isPaused('ArenaScene')) {
       game.scene.stop('ArenaScene');
     }
@@ -70,6 +78,9 @@ new UIManager(uiLayer, viewport, {
   },
   onResumeFromPause: () => {
     getActiveArena()?.setUserPause(false);
+  },
+  onSaveActiveRun: () => {
+    return getActiveArena()?.exportRunCheckpoint() ?? null;
   },
   onStopArena: () => {
     if (game.scene.isActive('ArenaScene')) {

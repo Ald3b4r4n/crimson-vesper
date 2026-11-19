@@ -28,10 +28,13 @@ import {
   UpgradeChoice,
   WEAPON_FORGE_COSTS,
 } from '../game/UpgradeLogic';
-import { ArenaCallbacks, HudSnapshot, RunSummary } from '../scenes/ArenaScene';
+import { ArenaCallbacks, HudSnapshot, RunSummary, SavedActiveRun } from '../scenes/ArenaScene';
 import { ViewportManager } from './ViewportManager';
 
 const RECORDS_STORAGE_KEY = 'crimson_vesper.records.v2';
+const ACTIVE_SLOT_KEY = 'crimson_vesper.active_slot.v1';
+const SAVE_SLOTS = [0, 1, 2] as const;
+type SaveSlotIndex = (typeof SAVE_SLOTS)[number];
 
 interface SavedRecords {
   bestSeconds: number;
@@ -41,6 +44,8 @@ interface SavedRecords {
   clearedStages: StageId[];
   unlockedWeapons: BaseWeaponId[];
   weaponForge: Partial<Record<BaseWeaponId, number>>;
+  lastSavedAt?: string;
+  activeRun?: SavedActiveRun | null;
 }
 
 type MenuScreen = 'splash' | 'hero_select' | 'stage_select' | 'arsenal' | 'lore';
@@ -83,16 +88,19 @@ export class UIManager {
     metaProgression?: {
       unlockedWeapons: BaseWeaponId[];
       weaponForge: Partial<Record<BaseWeaponId, number>>;
-    }
+    },
+    resumeCheckpoint?: SavedActiveRun
   ) => void;
   private onSetVirtualJoystick: (dx: number, dy: number) => void;
   private onTriggerDash: () => boolean;
   private onTogglePause: () => void;
   private onResumeFromPause: () => void;
+  private onSaveActiveRun: () => SavedActiveRun | null;
   private onStopArena: () => void;
 
   // Live HUD Elements
   private hudRoot: HTMLElement | null = null;
+  private menuModalHostEl: HTMLElement | null = null;
   private xpFillEl: HTMLElement | null = null;
   private xpLevelEl: HTMLElement | null = null;
   private weaponRowEl: HTMLElement | null = null;
@@ -126,12 +134,14 @@ export class UIManager {
         metaProgression?: {
           unlockedWeapons: BaseWeaponId[];
           weaponForge: Partial<Record<BaseWeaponId, number>>;
-        }
+        },
+        resumeCheckpoint?: SavedActiveRun
       ) => void;
       onSetVirtualJoystick: (dx: number, dy: number) => void;
       onTriggerDash: () => boolean;
       onTogglePause: () => void;
       onResumeFromPause: () => void;
+      onSaveActiveRun: () => SavedActiveRun | null;
       onStopArena: () => void;
     }
   ) {
@@ -142,6 +152,7 @@ export class UIManager {
     this.onTriggerDash = hooks.onTriggerDash;
     this.onTogglePause = hooks.onTogglePause;
     this.onResumeFromPause = hooks.onResumeFromPause;
+    this.onSaveActiveRun = hooks.onSaveActiveRun;
     this.onStopArena = hooks.onStopArena;
 
     this.curtain = document.createElement('div');
@@ -151,9 +162,31 @@ export class UIManager {
     this.renderMenu();
   }
 
-  private loadRecords(): SavedRecords {
+  private getActiveSaveSlot(): SaveSlotIndex {
     try {
-      const raw = localStorage.getItem(RECORDS_STORAGE_KEY);
+      const n = Number(localStorage.getItem(ACTIVE_SLOT_KEY));
+      if (n === 1 || n === 2) return n;
+    } catch {
+      // ignore
+    }
+    return 0;
+  }
+
+  private setActiveSaveSlot(slot: SaveSlotIndex): void {
+    try {
+      localStorage.setItem(ACTIVE_SLOT_KEY, String(slot));
+    } catch {
+      // ignore
+    }
+  }
+
+  private getSlotStorageKey(slot: SaveSlotIndex): string {
+    return slot === 0 ? RECORDS_STORAGE_KEY : `${RECORDS_STORAGE_KEY}.slot${slot}`;
+  }
+
+  private loadRecords(slot: SaveSlotIndex = this.getActiveSaveSlot()): SavedRecords {
+    try {
+      const raw = localStorage.getItem(this.getSlotStorageKey(slot));
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<SavedRecords>;
         const rawUnlocked = Array.isArray(parsed.unlockedWeapons)
@@ -173,6 +206,14 @@ export class UIManager {
               : [...DEFAULT_UNLOCKED_WEAPONS],
           weaponForge:
             parsed.weaponForge && typeof parsed.weaponForge === 'object' ? parsed.weaponForge : {},
+          lastSavedAt: typeof parsed.lastSavedAt === 'string' ? parsed.lastSavedAt : undefined,
+          activeRun:
+            parsed.activeRun &&
+            typeof parsed.activeRun === 'object' &&
+            parsed.activeRun.heroId &&
+            parsed.activeRun.stageId
+              ? parsed.activeRun
+              : null,
         };
       }
     } catch {
@@ -186,14 +227,67 @@ export class UIManager {
       clearedStages: [],
       unlockedWeapons: [...DEFAULT_UNLOCKED_WEAPONS],
       weaponForge: {},
+      activeRun: null,
     };
   }
 
-  private saveRecords(rec: SavedRecords): void {
+  private saveRecords(rec: SavedRecords, slot: SaveSlotIndex = this.getActiveSaveSlot()): void {
+    const stamped: SavedRecords = {
+      ...rec,
+      lastSavedAt: new Date().toISOString(),
+    };
     try {
-      localStorage.setItem(RECORDS_STORAGE_KEY, JSON.stringify(rec));
+      localStorage.setItem(this.getSlotStorageKey(slot), JSON.stringify(stamped));
     } catch {
       // ignore
+    }
+  }
+
+  private saveRunCheckpoint(checkpoint: SavedActiveRun | null): void {
+    const rec = this.loadRecords();
+    rec.activeRun = checkpoint;
+    this.saveRecords(rec);
+  }
+
+  private exportActiveSlotJson(): string {
+    return JSON.stringify(this.loadRecords(), null, 2);
+  }
+
+  private importActiveSlotJson(rawJson: string): { ok: boolean; error?: string } {
+    try {
+      const parsed = JSON.parse(rawJson) as Partial<SavedRecords>;
+      if (!parsed || typeof parsed !== 'object') {
+        return { ok: false, error: 'JSON inválido.' };
+      }
+      const unlocked = Array.isArray(parsed.unlockedWeapons)
+        ? parsed.unlockedWeapons.filter((w): w is BaseWeaponId =>
+            ALL_BASE_WEAPONS.includes(w as BaseWeaponId)
+          )
+        : [];
+      const cleared = Array.isArray(parsed.clearedStages)
+        ? parsed.clearedStages.filter((s): s is StageId => STAGES.some((st) => st.id === s))
+        : [];
+      const rec: SavedRecords = {
+        bestSeconds: Math.max(0, Number(parsed.bestSeconds) || 0),
+        bestKills: Math.max(0, Number(parsed.bestKills) || 0),
+        totalSouls: Math.max(0, Number(parsed.totalSouls) || 0),
+        victories: Math.max(0, Number(parsed.victories) || 0),
+        clearedStages: cleared,
+        unlockedWeapons: Array.from(new Set([...DEFAULT_UNLOCKED_WEAPONS, ...unlocked])),
+        weaponForge:
+          parsed.weaponForge && typeof parsed.weaponForge === 'object' ? parsed.weaponForge : {},
+        activeRun:
+          parsed.activeRun &&
+          typeof parsed.activeRun === 'object' &&
+          parsed.activeRun.heroId &&
+          parsed.activeRun.stageId
+            ? parsed.activeRun
+            : null,
+      };
+      this.saveRecords(rec);
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Erro ao ler o JSON do Save.' };
     }
   }
 
@@ -253,6 +347,7 @@ export class UIManager {
     this.clearKeyPickHandler();
     this.hudRoot = null;
     gothicSoundtrack.playMenuMusic();
+    const activeSlot = this.getActiveSaveSlot();
 
     const menu = document.createElement('div');
     menu.className = 'menu-root';
@@ -282,16 +377,26 @@ export class UIManager {
 
     menu.append(bgArt, bgVignette, embers);
 
-    // Top Game Chrome Bar (Fullscreen Landscape + Music + SFX)
+    // Top Game Chrome Bar (Save Game + Fullscreen Landscape + Music + SFX)
     const topBar = document.createElement('div');
     topBar.className = 'menu-top-bar';
 
     const leftTag = document.createElement('div');
     leftTag.className = 'game-crest-tag';
-    leftTag.textContent = '❖ Vespera · Vigília de 40 Minutos';
+    leftTag.textContent = `❖ Vespera · Slot ${activeSlot + 1}`;
 
     const rightUtils = document.createElement('div');
     rightUtils.className = 'top-utility-btns';
+
+    const saveBtn = document.createElement('button');
+    saveBtn.type = 'button';
+    saveBtn.className = 'btn-utility';
+    saveBtn.dataset.testid = 'open-save-modal-btn';
+    saveBtn.textContent = '💾 Save Game';
+    saveBtn.addEventListener('click', () => {
+      gothicAudio.playHit();
+      this.openSaveGameModal();
+    });
 
     const fsBtn = document.createElement('button');
     fsBtn.type = 'button';
@@ -323,7 +428,7 @@ export class UIManager {
       muteBtn.textContent = m ? '🔇 Efeitos' : '🔊 Efeitos';
     });
 
-    rightUtils.append(fsBtn, bgmBtn, muteBtn);
+    rightUtils.append(saveBtn, fsBtn, bgmBtn, muteBtn);
     topBar.append(leftTag, rightUtils);
     menu.appendChild(topBar);
 
@@ -346,6 +451,11 @@ export class UIManager {
       menu.querySelector('.splash-center, .subscreen-shell')?.classList.add('screen-enter');
     }
 
+    const menuModalHost = document.createElement('div');
+    menuModalHost.dataset.menuModalHost = 'true';
+    this.menuModalHostEl = menuModalHost;
+    menu.appendChild(menuModalHost);
+
     this.root.replaceChildren(menu);
   }
 
@@ -364,6 +474,25 @@ export class UIManager {
 
     const stack = document.createElement('div');
     stack.className = 'splash-menu-stack';
+
+    if (rec.activeRun) {
+      const savedRun = rec.activeRun;
+      const rStage = STAGES.find((s) => s.id === savedRun.stageId) ?? STAGES[0];
+      const rHero = HEROES[savedRun.heroId] ?? HEROES.alaric;
+      const contBtn = document.createElement('button');
+      contBtn.type = 'button';
+      contBtn.className = 'game-plaque-btn continue-save';
+      contBtn.dataset.testid = 'continue-saved-run-btn';
+      contBtn.innerHTML = `▶ Continuar Vigília Salva <span class="continue-save-sub">${rHero.name} · Fase ${rStage.roman} · ${formatClock(savedRun.elapsedSeconds)}</span>`;
+      contBtn.addEventListener('click', async () => {
+        gothicAudio.playWand(false);
+        if (this.viewport.isMobileViewport() && !this.viewport.isLandscapeActive()) {
+          await this.viewport.enterFullscreenLandscape();
+        }
+        this.resumeSavedRun(savedRun);
+      });
+      stack.appendChild(contBtn);
+    }
 
     const playBtn = document.createElement('button');
     playBtn.type = 'button';
@@ -618,6 +747,8 @@ export class UIManager {
 
     for (const st of STAGES) {
       const cleared = rec.clearedStages.includes(st.id);
+      const stHiddenW = WEAPONS[st.hiddenWeapon];
+      const stUnlocked = rec.unlockedWeapons.includes(st.hiddenWeapon);
       const slot = document.createElement('button');
       slot.type = 'button';
       slot.dataset.testid = `stage-card-${st.id}`;
@@ -627,6 +758,10 @@ export class UIManager {
         <div style="flex:1">
           <div class="roster-slot-name">Fase ${st.roman} · ${st.name}</div>
           <div class="roster-slot-sub">${st.threatLabel} ${cleared ? '· 👑 Purificada' : ''}</div>
+          <div class="roster-stage-weapon" style="color:${stUnlocked ? '#7be0ad' : '#ffd166'}">
+            <img class="mini-icon-inline" src="${getWeaponIconUrl(st.hiddenWeapon)}" alt="${stHiddenW.name}" />
+            ${stUnlocked ? '✦ Liberada:' : '🔒 Libera:'} <strong>${stHiddenW.name}</strong>
+          </div>
         </div>
       `;
       slot.addEventListener('click', () => {
@@ -642,6 +777,16 @@ export class UIManager {
     const cleared = rec.clearedStages.includes(st.id);
     const hiddenWeaponDef = WEAPONS[st.hiddenWeapon];
     const hiddenUnlocked = rec.unlockedWeapons.includes(st.hiddenWeapon);
+    const stageGuideItems = STAGES.map((s) => {
+      const hw = WEAPONS[s.hiddenWeapon];
+      const unlocked = rec.unlockedWeapons.includes(s.hiddenWeapon);
+      return `
+        <span class="stage-guide-chip ${unlocked ? 'unlocked' : 'locked'}">
+          <img class="mini-icon-inline" src="${getWeaponIconUrl(s.hiddenWeapon)}" alt="${hw.name}" />
+          <strong>F.${s.roman}:</strong> ${hw.name} ${unlocked ? '✦' : '🔒'}
+        </span>
+      `;
+    }).join('');
 
     const showcase = document.createElement('div');
     showcase.className = 'showcase-panel';
@@ -674,13 +819,17 @@ export class UIManager {
         <div style="font-size:0.75rem; color:#ffe79e; margin-bottom:4px">
           ✦ 1º Chefão (20:00) · 2º Chefão (30:00 · Vencer ou Continuar) · Supremo (40:00) · ${st.enemyPool.length} Espécies
         </div>
-        <div style="font-size:0.74rem; color:${hiddenUnlocked ? '#7be0ad' : '#ffd166'}; margin-bottom:8px" data-testid="stage-hidden-weapon-info">
+        <div style="font-size:0.74rem; color:${hiddenUnlocked ? '#7be0ad' : '#ffd166'}; margin-bottom:6px" data-testid="stage-hidden-weapon-info">
           <img class="mini-icon-inline" src="${getWeaponIconUrl(st.hiddenWeapon)}" alt="${hiddenWeaponDef.name}" />
           ${
             hiddenUnlocked
               ? `✦ Arma da Região Liberada: <strong>${hiddenWeaponDef.name}</strong>`
               : `🧭 Escondida no Cenário: <strong>${hiddenWeaponDef.name}</strong> (${st.hiddenAltarName})`
           }
+        </div>
+        <div class="stage-weapons-guide" data-testid="stage-weapons-guide">
+          <div class="stage-guide-title">🗺 Armas Liberadas em Cada Fase (Iniciais: Açoite Consagrado & Cetro de Estilhaços)</div>
+          <div class="stage-guide-grid">${stageGuideItems}</div>
         </div>
       </div>
 
@@ -982,6 +1131,38 @@ export class UIManager {
     });
     inspector.appendChild(forgeEl);
 
+    // Compact Per-Stage Weapon Discovery Table
+    const guideRowsHtml = [
+      `<div class="arsenal-guide-row unlocked">
+        <span><strong>Iniciais:</strong></span>
+        <span>
+          <img class="mini-icon-inline" src="${getWeaponIconUrl('whip')}" alt="" /> ${WEAPONS.whip.name} ·
+          <img class="mini-icon-inline" src="${getWeaponIconUrl('wand')}" alt="" /> ${WEAPONS.wand.name}
+        </span>
+        <span class="guide-badge unlocked">✦ Iniciais</span>
+      </div>`,
+      ...STAGES.map((st) => {
+        const w = WEAPONS[st.hiddenWeapon];
+        const unlocked = rec.unlockedWeapons.includes(st.hiddenWeapon);
+        return `
+          <div class="arsenal-guide-row ${unlocked ? 'unlocked' : 'locked'}">
+            <span><strong>Fase ${st.roman}</strong> (${st.name}):</span>
+            <span><img class="mini-icon-inline" src="${getWeaponIconUrl(st.hiddenWeapon)}" alt="${w.name}" /> ${w.name}</span>
+            <span class="guide-badge ${unlocked ? 'unlocked' : 'locked'}">${unlocked ? '✦ Liberada' : '🔒 Oculta'}</span>
+          </div>
+        `;
+      }),
+    ].join('');
+
+    const stageListEl = document.createElement('div');
+    stageListEl.className = 'arsenal-stage-weapons-list';
+    stageListEl.dataset.testid = 'arsenal-stage-weapons-list';
+    stageListEl.innerHTML = `
+      <div class="forge-title" style="margin-bottom:6px">🗺 Guia: Onde Liberar Cada Arma por Fase</div>
+      <div class="arsenal-guide-rows">${guideRowsHtml}</div>
+    `;
+    inspector.appendChild(stageListEl);
+
     body.append(matrix, inspector);
     shell.appendChild(body);
     menu.appendChild(shell);
@@ -1060,14 +1241,21 @@ export class UIManager {
     menu.appendChild(shell);
   }
 
-  private beginArenaRun(): void {
+  private beginArenaRun(resumeCheckpoint?: SavedActiveRun): void {
     const rec = this.loadRecords();
+    const hero = resumeCheckpoint?.heroId ?? this.selectedHero;
+    const stage = resumeCheckpoint?.stageId ?? this.selectedStage;
+    const diff = resumeCheckpoint?.difficultyId ?? this.selectedDifficulty;
+    this.selectedHero = hero;
+    this.selectedStage = stage;
+    this.selectedDifficulty = diff;
+
     this.transitionWithCurtain(() => {
       this.mountHudDom();
       this.onStartRun(
-        this.selectedHero,
-        this.selectedStage,
-        this.selectedDifficulty,
+        hero,
+        stage,
+        diff,
         {
           onHudUpdate: (snap) => this.updateHud(snap),
           onLevelUpChoices: (choices, onPick) => this.showLevelUpModal(choices, onPick),
@@ -1077,14 +1265,20 @@ export class UIManager {
           onStage30MinBossCleared: (summary, onContinue, onFinish) =>
             this.showStage30MinClearedModal(summary, onContinue, onFinish),
           onWeaponDiscovered: (wId) => this.unlockWeaponPermanently(wId),
+          onSaveRunCheckpoint: (cp) => this.saveRunCheckpoint(cp),
           onRunEnded: (summary) => this.showRunSummaryModal(summary),
         },
         {
           unlockedWeapons: rec.unlockedWeapons,
           weaponForge: rec.weaponForge,
-        }
+        },
+        resumeCheckpoint
       );
     });
+  }
+
+  private resumeSavedRun(savedRun: SavedActiveRun): void {
+    this.beginArenaRun(savedRun);
   }
 
   private mountHudDom(): void {
@@ -1529,14 +1723,16 @@ export class UIManager {
     backdrop.className = 'modal-backdrop';
     backdrop.dataset.testid = 'pause-modal';
     backdrop.innerHTML = `
-      <div class="modal-panel" style="max-width:380px">
+      <div class="modal-panel" style="max-width:400px">
         <h2 class="modal-title">Vigília Suspensa</h2>
         <p class="modal-subtitle">A Névoa Rubra aguarda no escuro.</p>
         <div style="display:flex; flex-direction:column; gap:10px">
           <button type="button" class="btn-gothic" data-resume-btn>Retomar Vigília</button>
+          <button type="button" class="btn-gothic secondary" data-testid="pause-save-run-btn">💾 Salvar Vigília Agora</button>
           <button type="button" class="btn-gothic secondary" data-fs-pause-btn>⛶ Alternar Tela Cheia (Deitada)</button>
           <button type="button" class="btn-gothic secondary" data-quit-btn>Sair e retornar ao menu</button>
         </div>
+        <div data-testid="pause-save-status" style="font-size:0.76rem; color:#7be0ad; margin-top:8px; min-height:1.1em"></div>
       </div>
     `;
 
@@ -1544,10 +1740,23 @@ export class UIManager {
       backdrop.remove();
       this.onResumeFromPause();
     });
+    backdrop.querySelector('[data-testid="pause-save-run-btn"]')?.addEventListener('click', () => {
+      const cp = this.onSaveActiveRun();
+      this.saveRunCheckpoint(cp);
+      gothicAudio.playHit();
+      const statusEl = backdrop.querySelector('[data-testid="pause-save-status"]');
+      if (statusEl) {
+        statusEl.textContent = cp
+          ? `✓ Vigília salva no Slot ${this.getActiveSaveSlot() + 1} (${formatClock(cp.elapsedSeconds)})!`
+          : '✓ Progresso da conta salvo!';
+      }
+    });
     backdrop.querySelector('[data-fs-pause-btn]')?.addEventListener('click', () => {
       this.viewport.toggleFullscreenLandscape();
     });
     backdrop.querySelector('[data-quit-btn]')?.addEventListener('click', () => {
+      const cp = this.onSaveActiveRun();
+      if (cp) this.saveRunCheckpoint(cp);
       this.transitionWithCurtain(() => {
         this.onStopArena();
         this.renderTitleScreen();
@@ -1667,5 +1876,120 @@ export class UIManager {
     });
 
     this.modalHostEl.replaceChildren(backdrop);
+  }
+
+  private openSaveGameModal(statusMessage = ''): void {
+    if (!this.menuModalHostEl) return;
+    const activeSlot = this.getActiveSaveSlot();
+    const rec = this.loadRecords(activeSlot);
+
+    const slotsHtml = SAVE_SLOTS.map((slot) => {
+      const data = this.loadRecords(slot);
+      const isSelected = slot === activeSlot;
+      const runInfo = data.activeRun
+        ? `${HEROES[data.activeRun.heroId]?.name ?? 'Herói'} · ${formatClock(data.activeRun.elapsedSeconds)}`
+        : 'Nenhuma vigília ativa';
+      const dateStr = data.lastSavedAt
+        ? new Date(data.lastSavedAt).toLocaleString('pt-BR', {
+            hour: '2-digit',
+            minute: '2-digit',
+            day: '2-digit',
+            month: '2-digit',
+          })
+        : 'Ainda não salvo';
+      return `
+        <button type="button" class="save-slot-card ${isSelected ? 'selected' : ''}" data-testid="save-slot-${slot}">
+          <div class="save-slot-top">
+            <strong>Slot ${slot + 1} ${isSelected ? '✦ ATIVO' : ''}</strong>
+            <span>${dateStr}</span>
+          </div>
+          <div class="save-slot-stats">
+            <span>Almas: <strong>${data.totalSouls}</strong></span>
+            <span>Armas: <strong>${data.unlockedWeapons.length}/9</strong></span>
+            <span>Fases: <strong>${data.clearedStages.length}/7</strong></span>
+          </div>
+          <div class="save-slot-run">Vigília: ${runInfo}</div>
+        </button>
+      `;
+    }).join('');
+
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop';
+    backdrop.dataset.testid = 'save-game-modal';
+    backdrop.innerHTML = `
+      <div class="modal-panel" style="max-width:600px; text-align:left">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:6px">
+          <h2 class="modal-title" style="margin:0">💾 Sistema de Save Game</h2>
+          <button type="button" class="btn-gothic secondary" data-close-save-modal style="padding:6px 12px">✖ Fechar</button>
+        </div>
+        <p class="modal-subtitle" style="margin-bottom:10px">
+          Gerencie seus 3 slots de progresso, salve manualmente, exporte ou importe seu arquivo JSON.
+        </p>
+
+        <div class="save-slots-grid">${slotsHtml}</div>
+
+        <div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0">
+          <button type="button" class="btn-gothic" data-testid="manual-save-btn">💾 Salvar Progresso Agora</button>
+          <button type="button" class="btn-gothic secondary" data-testid="export-save-btn">⬇ Exportar Save (JSON)</button>
+          <button type="button" class="btn-gothic secondary" data-testid="import-save-btn">⬆ Importar Save (JSON)</button>
+        </div>
+
+        <div data-testid="save-status-msg" style="font-size:0.78rem; color:#7be0ad; min-height:1.2em; margin-bottom:6px">${statusMessage}</div>
+
+        <textarea class="save-json-textarea" data-testid="save-json-textarea" rows="5" spellcheck="false">${JSON.stringify(rec, null, 2)}</textarea>
+      </div>
+    `;
+
+    SAVE_SLOTS.forEach((slot) => {
+      backdrop.querySelector(`[data-testid="save-slot-${slot}"]`)?.addEventListener('click', () => {
+        gothicAudio.playHit();
+        this.setActiveSaveSlot(slot);
+        this.renderMenu();
+        this.openSaveGameModal(`✓ Slot ${slot + 1} carregado.`);
+      });
+    });
+
+    backdrop.querySelector('[data-testid="manual-save-btn"]')?.addEventListener('click', () => {
+      const cur = this.loadRecords(this.getActiveSaveSlot());
+      this.saveRecords(cur);
+      gothicAudio.playLevelUp();
+      this.renderMenu();
+      this.openSaveGameModal(`✓ Jogo salvo no Slot ${this.getActiveSaveSlot() + 1}!`);
+    });
+
+    backdrop.querySelector('[data-testid="export-save-btn"]')?.addEventListener('click', () => {
+      const json = this.exportActiveSlotJson();
+      const area = backdrop.querySelector('[data-testid="save-json-textarea"]') as HTMLTextAreaElement | null;
+      if (area) area.value = json;
+      const statusEl = backdrop.querySelector('[data-testid="save-status-msg"]');
+      if (statusEl) statusEl.textContent = '✓ Save exportado em JSON no quadro abaixo!';
+      try {
+        void navigator.clipboard?.writeText(json);
+      } catch {
+        // Ignore clipboard errors in headless environments
+      }
+    });
+
+    backdrop.querySelector('[data-testid="import-save-btn"]')?.addEventListener('click', () => {
+      const area = backdrop.querySelector('[data-testid="save-json-textarea"]') as HTMLTextAreaElement | null;
+      const res = this.importActiveSlotJson(area?.value ?? '');
+      if (res.ok) {
+        gothicAudio.playLevelUp();
+        this.renderMenu();
+        this.openSaveGameModal(`✓ Save importado com sucesso para o Slot ${this.getActiveSaveSlot() + 1}!`);
+      } else {
+        const statusEl = backdrop.querySelector('[data-testid="save-status-msg"]');
+        if (statusEl) {
+          statusEl.textContent = `⚠ ${res.error ?? 'JSON inválido.'}`;
+          (statusEl as HTMLElement).style.color = '#ff8fa3';
+        }
+      }
+    });
+
+    backdrop.querySelector('[data-close-save-modal]')?.addEventListener('click', () => {
+      backdrop.remove();
+    });
+
+    this.menuModalHostEl.replaceChildren(backdrop);
   }
 }

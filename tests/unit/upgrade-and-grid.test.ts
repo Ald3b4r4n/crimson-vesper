@@ -247,6 +247,9 @@ describe('Vespera — Difficulties, Ultimates, 27 Enemies, 40-Min Stages & 36 Ic
     ]);
     expect(HEROES.luisa.lore.toLowerCase()).toContain('antonio cruz');
     expect(HEROES.luisa.lore.toLowerCase()).toContain('encaracolados');
+    expect(HEROES.antonio.lore.toLowerCase()).toContain('medieval');
+    expect(HEROES.antonio.lore.toLowerCase()).not.toContain('alfaiataria');
+    expect(HEROES.antonio.lore.toLowerCase()).not.toContain('gravata');
 
     expect(createInitialInventory('mordred').weapons.thurible).toBe(1);
     expect(createInitialInventory('link').weapons.cross).toBe(1);

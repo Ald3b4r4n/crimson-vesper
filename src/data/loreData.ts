@@ -502,8 +502,8 @@ export const HEROES: Record<HeroId, HeroDefinition> = {
     accentColor: 0xff2a55,
     trimColor: '#ff4d6d',
     perkSummary: '+140 PV · +20% Dano · +24% Crítico · +2 Armadura',
-    lore: 'Patriarca moderno da Linhagem Cruz. Trajado em alfaiataria escura e açoite consagrado, caça lordes vampiros sem jamais perder a compostura.',
-    quote: '“Ajeita a gravata, firma a corrente — hoje nenhum imortal passa da meia-noite.”',
+    lore: 'Patriarca colossal da Ordem da Cruz. De físico brutal forjado em centenas de cercos noturnos, veste couraça medieval de couro negro e ferro consagrado, esmagando lordes vampiros com a força pura de suas correntes.',
+    quote: '“Nenhuma muralha ou imortal resiste quando a Cruz marcha para a caçada.”',
     baseStats: {
       maxHp: 140,
       moveSpeed: 182,

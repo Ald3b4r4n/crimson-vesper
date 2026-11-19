@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { EnemyKind, HERO_ORDER, StageDefinition } from '../data/loreData';
+import { BaseWeaponId, EnemyKind, HERO_ORDER, StageDefinition } from '../data/loreData';
 
 function makeCanvas(width: number, height: number): {
   canvas: HTMLCanvasElement;
@@ -67,9 +67,14 @@ const STATIC_ENV_ASSETS = [
   'prop_dungeon_cage',
   'prop_obsidian_spire',
   'prop_bone_arch',
+  'prop_weapon_altar',
   'ruin_crumbled_wall',
   'ruin_broken_arch',
   'ruin_weathered_statue',
+  // Painted Gothic Forest Trees
+  'tree_ancient_oak',
+  'tree_weeping_willow',
+  'tree_pine_shadow',
   // Vegetation
   'veg_bramble_bush',
   'veg_twisted_shrub',
@@ -126,6 +131,24 @@ export function preloadAllSpriteAssets(scene: Phaser.Scene): void {
   for (const assetKey of STATIC_ENV_ASSETS) {
     if (!scene.textures.exists(assetKey)) {
       scene.load.image(assetKey, `./art/sprites/${assetKey}.webp`);
+    }
+  }
+
+  const baseWeapons: BaseWeaponId[] = [
+    'whip',
+    'wand',
+    'bible',
+    'axe',
+    'thurible',
+    'lightning',
+    'daggers',
+    'flask',
+    'cross',
+  ];
+  for (const wId of baseWeapons) {
+    const texKey = `weapon_icon_${wId}`;
+    if (!scene.textures.exists(texKey)) {
+      scene.load.image(texKey, `./art/icons/${wId}.webp`);
     }
   }
 }
@@ -964,5 +987,64 @@ export function forgeAllTexturesAndAnims(scene: Phaser.Scene): void {
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
+  });
+
+  // Celestial Golden Light Pillar & Runic Halo for Hidden Weapon Reliquary Shrines
+  registerSingle(scene, 'vfx_reliquary_beam', 96, 220, (ctx, w, h) => {
+    const grad = ctx.createLinearGradient(0, h, 0, 0);
+    grad.addColorStop(0, 'rgba(255, 225, 130, 0.72)');
+    grad.addColorStop(0.35, 'rgba(255, 195, 75, 0.36)');
+    grad.addColorStop(0.78, 'rgba(255, 85, 110, 0.14)');
+    grad.addColorStop(1, 'rgba(255, 85, 110, 0)');
+    const hGrad = ctx.createLinearGradient(0, 0, w, 0);
+    hGrad.addColorStop(0, 'rgba(0,0,0,0)');
+    hGrad.addColorStop(0.3, 'rgba(255,255,255,0.65)');
+    hGrad.addColorStop(0.5, 'rgba(255,255,255,1)');
+    hGrad.addColorStop(0.7, 'rgba(255,255,255,0.65)');
+    hGrad.addColorStop(1, 'rgba(0,0,0,0)');
+
+    ctx.fillStyle = grad;
+    ctx.fillRect(14, 0, w - 28, h);
+    ctx.globalCompositeOperation = 'destination-in';
+    ctx.fillStyle = hGrad;
+    ctx.fillRect(0, 0, w, h);
+    ctx.globalCompositeOperation = 'source-over';
+  });
+
+  registerSingle(scene, 'vfx_reliquary_halo', 96, 96, (ctx, w, h) => {
+    const cx = w / 2;
+    const cy = h / 2;
+    const g = ctx.createRadialGradient(cx, cy, 4, cx, cy, cx - 2);
+    g.addColorStop(0, 'rgba(255, 245, 185, 0.52)');
+    g.addColorStop(0.6, 'rgba(255, 200, 75, 0.18)');
+    g.addColorStop(1, 'rgba(255, 80, 100, 0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.strokeStyle = 'rgba(255, 228, 120, 0.86)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 38, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(255, 140, 160, 0.72)';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 30, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = '#fff5b0';
+    for (let i = 0; i < 4; i++) {
+      const a = (i * Math.PI) / 2;
+      const px = cx + Math.cos(a) * 38;
+      const py = cy + Math.sin(a) * 38;
+      ctx.beginPath();
+      ctx.moveTo(px, py - 4);
+      ctx.lineTo(px + 4, py);
+      ctx.lineTo(px, py + 4);
+      ctx.lineTo(px - 4, py);
+      ctx.closePath();
+      ctx.fill();
+    }
   });
 }
