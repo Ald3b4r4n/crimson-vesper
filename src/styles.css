@@ -444,6 +444,10 @@ body {
   flex-shrink: 0;
 }
 
+.roster-slot > div {
+  min-width: 0;
+}
+
 .roster-slot-name {
   font-family: var(--font-display);
   font-size: 0.84rem;
@@ -1472,18 +1476,195 @@ body {
   }
 }
 
-@media (max-width: 680px) {
+@media (max-width: 760px) {
+  #game-root:not(.forced-landscape) .menu-root {
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+  #game-root:not(.forced-landscape) .menu-bg-art {
+    position: fixed;
+    inset: -3%;
+  }
+  #game-root:not(.forced-landscape) .menu-bg-vignette,
+  #game-root:not(.forced-landscape) .menu-embers,
+  #game-root:not(.forced-landscape) .modal-backdrop {
+    position: fixed;
+    inset: 0;
+  }
+  #game-root:not(.forced-landscape) .menu-top-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    padding: calc(8px + var(--safe-top)) calc(10px + var(--safe-right)) 6px calc(10px + var(--safe-left));
+  }
+  #game-root:not(.forced-landscape) .game-crest-tag {
+    font-size: 0.62rem;
+    letter-spacing: 0.14em;
+    text-align: center;
+  }
+  #game-root:not(.forced-landscape) .top-utility-btns {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 5px;
+    width: 100%;
+  }
+  #game-root:not(.forced-landscape) .btn-utility {
+    font-size: 0.62rem;
+    padding: 6px 6px;
+    letter-spacing: 0.04em;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #game-root:not(.forced-landscape) .splash-status-strip {
+    gap: 8px 12px;
+    font-size: 0.65rem;
+    padding: 8px 12px calc(14px + var(--safe-bottom));
+  }
+  #game-root:not(.forced-landscape) .subscreen-shell {
+    flex: none;
+    min-height: 0;
+    padding: 0 calc(10px + var(--safe-right)) calc(22px + var(--safe-bottom)) calc(10px + var(--safe-left));
+  }
+  #game-root:not(.forced-landscape) .subscreen-header {
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  #game-root:not(.forced-landscape) .subscreen-header > div:empty {
+    display: none;
+  }
+  #game-root:not(.forced-landscape) .subscreen-title {
+    font-size: 0.86rem;
+    letter-spacing: 0.08em;
+    text-align: center;
+    order: 3;
+    flex: 1 0 100%;
+  }
   #game-root:not(.forced-landscape) .subscreen-body {
-    grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: auto;
   }
   #game-root:not(.forced-landscape) .roster-list {
     flex-direction: row;
     overflow-x: auto;
     overflow-y: hidden;
-    padding-bottom: 4px;
+    gap: 8px;
+    padding: 2px 2px 6px;
+    flex-shrink: 0;
+    -webkit-overflow-scrolling: touch;
   }
   #game-root:not(.forced-landscape) .roster-slot {
-    min-width: 175px;
+    flex: 0 0 248px;
+    width: 248px;
+    min-width: 248px;
+    max-width: 248px;
+    overflow: hidden;
+    padding: 8px 9px;
+    align-items: flex-start;
+  }
+  #game-root:not(.forced-landscape) .roster-slot > div {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+  }
+  #game-root:not(.forced-landscape) .roster-slot-name {
+    font-size: 0.76rem;
+    line-height: 1.2;
+  }
+  #game-root:not(.forced-landscape) .roster-stage-weapon {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 3px 4px;
+    font-size: 0.64rem;
+    line-height: 1.25;
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  #game-root:not(.forced-landscape) .showcase-panel {
+    overflow: visible;
+    padding: 12px 12px 14px;
+    gap: 10px;
+  }
+  #game-root:not(.forced-landscape) .hero-showcase-top {
+    gap: 12px;
+    align-items: center;
+  }
+  #game-root:not(.forced-landscape) .hero-showcase-info {
+    min-width: 0;
+    flex: 1;
+  }
+  #game-root:not(.forced-landscape) .hero-showcase-info h2 {
+    font-size: 1.12rem;
+    line-height: 1.15;
+  }
+  #game-root:not(.forced-landscape) .weapon-crest-badge {
+    flex-wrap: wrap;
+    font-size: 0.68rem;
+    padding: 4px 8px;
+  }
+  #game-root:not(.forced-landscape) .hero-pedestal-box {
+    width: 102px;
+    height: 102px;
+  }
+  #game-root:not(.forced-landscape) .hero-live-sprite {
+    transform: scale(0.88);
+  }
+  #game-root:not(.forced-landscape) .stat-bars-grid {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  #game-root:not(.forced-landscape) .difficulty-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+  #game-root:not(.forced-landscape) .difficulty-meta {
+    justify-content: flex-start;
+    gap: 4px 8px;
+    font-size: 0.64rem;
+  }
+  #game-root:not(.forced-landscape) .stage-cinema-banner {
+    height: 168px;
+  }
+  #game-root:not(.forced-landscape) .stage-cinema-overlay {
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-end;
+    gap: 6px;
+    padding: 8px 10px;
+  }
+  #game-root:not(.forced-landscape) .stage-cinema-overlay h2 {
+    font-size: 1.08rem !important;
+    line-height: 1.15;
+  }
+  #game-root:not(.forced-landscape) .boss-preview-chip {
+    padding: 3px 8px;
+    max-width: 100%;
+  }
+  #game-root:not(.forced-landscape) .showcase-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    margin-top: 8px;
+    padding-top: 10px;
+  }
+  #game-root:not(.forced-landscape) .showcase-footer .btn-gothic {
+    width: 100%;
+    text-align: center;
+  }
+  #game-root:not(.forced-landscape) .synergy-matrix {
+    max-height: 260px;
+    overflow-y: auto;
+    padding-right: 2px;
+  }
+  #game-root:not(.forced-landscape) .save-slots-grid {
+    grid-template-columns: 1fr;
   }
   #game-root:not(.forced-landscape) .upgrade-list {
     grid-template-columns: 1fr;
@@ -1631,8 +1812,9 @@ body {
 /* PER-STAGE WEAPON UNLOCK LISTING & SAVE GAME SYSTEM */
 .roster-stage-weapon {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 5px;
+  gap: 3px 5px;
   font-size: 0.68rem;
   margin-top: 3px;
 }

@@ -232,17 +232,71 @@ test('verifies 4 difficulties, 36 Ultimate Power Grid icons, dense forest & fire
   await expect(page.getByTestId('title-screen')).toBeVisible({ timeout: 5000 });
   await page.waitForTimeout(420);
 
-  // 5. Mobile Portrait (390x844) -> Automatic & Toggled Forced CSS Landscape ("visão de tela deitada")
+  // 5. Mobile Portrait (390x844) -> Responsive Native Portrait & Toggled Forced CSS Landscape
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator('#game-root')).toHaveClass(/forced-landscape/);
-  // Toggle off and back on via fullscreen button to verify manual toggle too
+
+  // 5a. Native Portrait Mode (exiting forced-landscape) -> verify zero overflow & full reachability
   await page.getByTestId('fullscreen-btn').click();
   await expect(page.locator('#game-root')).not.toHaveClass(/forced-landscape/);
+  await page.waitForTimeout(150);
+
+  // Verify top bar utility buttons never clip off the 390px right edge
+  const portraitSplashOk = await page.evaluate(() => {
+    const btns = Array.from(document.querySelectorAll('.menu-top-bar .btn-utility'));
+    const maxRight = Math.max(...btns.map((b) => b.getBoundingClientRect().right));
+    return { maxRight, docScrollW: document.documentElement.scrollWidth, innerW: window.innerWidth };
+  });
+  expect(portraitSplashOk.maxRight).toBeLessThanOrEqual(391);
+  expect(portraitSplashOk.docScrollW).toBeLessThanOrEqual(391);
+
+  // Enter Hero Select and exit forced-landscape to test Native Portrait Hero Select
+  await page.getByTestId('menu-play-btn').click();
+  if (await page.locator('#game-root.forced-landscape').count()) {
+    await page.getByTestId('fullscreen-btn').click();
+  }
+  await expect(page.locator('#game-root')).not.toHaveClass(/forced-landscape/);
+  await page.getByTestId('hero-card-antonio').click();
+  await page.waitForTimeout(160);
+  await page.screenshot({ path: 'test-results/preview-mobile-portrait-hero.png' });
+
+  await page.getByTestId('difficulty-holi_shit').scrollIntoViewIfNeeded();
+  await expect(page.getByTestId('difficulty-holi_shit')).toBeVisible();
+  await page.getByTestId('go-stage-select-btn').scrollIntoViewIfNeeded();
+  await expect(page.getByTestId('go-stage-select-btn')).toBeVisible();
+
+  const portraitHeroMetrics = await page.evaluate(() => {
+    const btns = Array.from(document.querySelectorAll('.menu-top-bar .btn-utility'));
+    const maxRight = Math.max(...btns.map((b) => b.getBoundingClientRect().right));
+    return { maxRight, docScrollW: document.documentElement.scrollWidth };
+  });
+  expect(portraitHeroMetrics.maxRight).toBeLessThanOrEqual(391);
+  expect(portraitHeroMetrics.docScrollW).toBeLessThanOrEqual(391);
+
+  // Native Portrait Stage Select -> verify stage cards do not overflow onto neighbors
+  await page.getByTestId('go-stage-select-btn').click();
+  await page.waitForTimeout(160);
+  await page.screenshot({ path: 'test-results/preview-mobile-portrait-stage.png' });
+
+  const portraitStageMetrics = await page.evaluate(() => {
+    const card = document.querySelector('[data-testid="stage-card-forest"]') as HTMLElement | null;
+    return {
+      docScrollW: document.documentElement.scrollWidth,
+      cardScrollW: card?.scrollWidth ?? 0,
+      cardClientW: card?.clientWidth ?? 0,
+    };
+  });
+  expect(portraitStageMetrics.docScrollW).toBeLessThanOrEqual(391);
+  expect(portraitStageMetrics.cardScrollW).toBeLessThanOrEqual(portraitStageMetrics.cardClientW + 2);
+  await page.getByTestId('start-run-btn').scrollIntoViewIfNeeded();
+  await expect(page.getByTestId('start-run-btn')).toBeVisible();
+
+  // 5b. Toggle Forced CSS Landscape ("visão de tela deitada") back ON & launch Inferno mobile run
   await page.getByTestId('fullscreen-btn').click();
   await expect(page.locator('#game-root')).toHaveClass(/forced-landscape/);
   await page.screenshot({ path: 'test-results/preview-mobile-landscape-menu.png' });
 
-  await page.getByTestId('menu-play-btn').click();
+  await page.getByRole('button', { name: '← Heróis' }).click();
   await page.getByTestId('hero-card-valeria').click();
   await page.getByTestId('go-stage-select-btn').click();
   await page.getByTestId('stage-card-inferno').scrollIntoViewIfNeeded();

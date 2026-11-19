@@ -79,6 +79,8 @@ const STATIC_ENV_ASSETS = [
   'veg_bramble_bush',
   'veg_twisted_shrub',
   'veg_charred_thicket',
+  'veg_fern_cluster',
+  'veg_glowing_mushrooms',
   // Breakable Destructibles
   'break_wooden_barrel',
   'break_clay_urn',
