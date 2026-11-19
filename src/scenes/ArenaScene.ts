@@ -1163,8 +1163,8 @@ export class ArenaScene extends Phaser.Scene {
       .setDepth(ySortDepth(this.heroY + 34));
     this.heroShadow.setPosition(this.heroX, this.heroY + 38);
 
-    const targetTilt = (this.heroVx / this.stats.moveSpeed) * 0.055;
-    this.heroSprite.rotation = Phaser.Math.Linear(this.heroSprite.rotation, targetTilt, 10 * dt);
+    const targetTilt = (this.heroVx / this.stats.moveSpeed) * 0.022;
+    this.heroSprite.rotation = Phaser.Math.Linear(this.heroSprite.rotation, targetTilt, 12 * dt);
 
     // Blend smoothly between Attack Swing, 8-Frame Articulated Walk, and Calm Idle!
     const walkKey = `hero_${this.heroId}_walk`;
@@ -1172,11 +1172,11 @@ export class ArenaScene extends Phaser.Scene {
     const curAnimKey = this.heroSprite.anims.currentAnim?.key;
 
     if (this.heroAttackAnimTimer <= 0) {
-      if (speedRatio > 0.14) {
+      if (speedRatio > 0.12) {
         if (curAnimKey !== walkKey) {
           this.heroSprite.play(walkKey, true);
         }
-        this.heroSprite.anims.timeScale = 0.78 + speedRatio * 0.68;
+        this.heroSprite.anims.timeScale = 0.88 + speedRatio * 0.62;
       } else {
         if (curAnimKey !== idleKey) {
           this.heroSprite.play(idleKey, true);
@@ -1184,21 +1184,17 @@ export class ArenaScene extends Phaser.Scene {
         this.heroSprite.anims.timeScale = 1.0;
       }
     } else {
-      this.heroSprite.anims.timeScale = 1.15;
+      this.heroSprite.anims.timeScale = 1.2;
     }
 
-    if (speedRatio > 0.14) {
-      const stridePulse = Math.sin(time * 0.016) * 0.025 * speedRatio;
-      this.heroSprite.setScale(0.86 - stridePulse, 0.86 + stridePulse);
-
+    // Keep character proportions 100% rigid (no jelly squash-and-stretch scaling!)
+    this.heroSprite.setScale(0.86, 0.86);
+    if (speedRatio > 0.12) {
       this.dustStepTimer -= dt;
       if (this.dustStepTimer <= 0) {
         this.dustStepTimer = 0.18;
         this.spawnFootstepDust(this.heroX, this.heroY + 36);
       }
-    } else {
-      const breath = Math.sin(time * 0.004) * 0.015;
-      this.heroSprite.setScale(0.86 + breath * 0.5, 0.86 - breath);
     }
 
     if (this.invulnTimer > 0 && this.dashActiveTimer <= 0) {
@@ -2192,7 +2188,7 @@ export class ArenaScene extends Phaser.Scene {
     const baseAngle = Math.atan2(this.aimY, this.aimX);
     const speed = (tier === 2 ? 780 : tier === 1 ? 680 : 520 + lv * 25) * this.stats.projSpeed;
 
-    gothicAudio.playWand(true);
+    gothicAudio.playDaggers();
     for (let i = 0; i < count; i++) {
       const spread = (i - (count - 1) / 2) * (tier === 2 ? 0.14 : 0.11);
       const angle = baseAngle + spread;
@@ -2226,6 +2222,7 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private fireAlchemicalFlasks(lv: number, tier: 0 | 1 | 2): void {
+    gothicAudio.playFlask();
     const fb = this.getForgeBonus('flask');
     const count =
       (tier === 2 ? 4 : tier === 1 ? 2 + lv : 1 + Math.floor(lv / 2)) +
@@ -2507,7 +2504,7 @@ export class ArenaScene extends Phaser.Scene {
 
   private fireJudgmentCrosses(lv: number, tier: 0 | 1 | 2): void {
     this.triggerHeroAttackAnim();
-    gothicAudio.playAxe();
+    gothicAudio.playCross();
     const fb = this.getForgeBonus('cross');
     const count =
       (tier === 2 ? 5 : tier === 1 ? 2 + (lv >= 2 ? 1 : 0) : lv >= 3 ? 2 : 1) +
@@ -3085,14 +3082,10 @@ export class ArenaScene extends Phaser.Scene {
       const visualBase = isColossal
         ? (e.def.isBoss ? e.def.scale : e.def.scale * 1.45) * 0.84
         : (e.isElite ? e.def.scale * 1.24 : e.def.scale) * 0.78;
-      let sx = visualBase * (0.45 + 0.55 * emergeEase);
-      let sy = visualBase * (0.15 + 0.85 * emergeEase);
+      const uniformScale = visualBase * (0.35 + 0.65 * emergeEase);
 
       if (e.squashTimer > 0) {
         e.squashTimer = Math.max(0, e.squashTimer - dt);
-        const sq = e.squashTimer / 0.14;
-        sx *= 1 + 0.2 * sq;
-        sy *= 1 - 0.16 * sq;
       }
 
       if (e.hitFlashTimer > 0) {
@@ -3108,13 +3101,17 @@ export class ArenaScene extends Phaser.Scene {
         e.sprite.clearTint();
       }
 
+      if (e.sprite.anims) {
+        e.sprite.anims.timeScale = 0.88 + Math.min(0.62, moveSpeed / 105);
+      }
+
       e.sprite
         .setPosition(e.x, e.y)
         .setDepth(ySortDepth(e.y + 28, e.def.isBoss ? 2 : 0))
-        .setScale(sx, sy)
+        .setScale(uniformScale, uniformScale)
         .setAlpha(emergeEase)
         .setFlipX(dxHero < 0)
-        .setRotation((dxHero >= 0 ? 1 : -1) * 0.03 * Math.sin(time * 0.008 + e.animSeed));
+        .setRotation(0);
 
       e.shadow
         .setPosition(e.x, e.y + (e.def.isBoss ? 52 : 30) * e.def.scale)

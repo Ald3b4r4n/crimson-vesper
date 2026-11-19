@@ -396,11 +396,8 @@ export function forgeAllTexturesAndAnims(scene: Phaser.Scene): void {
     if (!scene.anims.exists(`${key}_idle`)) {
       scene.anims.create({
         key: `${key}_idle`,
-        frames: [
-          { key, frame: 0 },
-          { key, frame: 4 },
-        ],
-        frameRate: 2.2,
+        frames: scene.anims.generateFrameNumbers(key, { start: 12, end: 15 }),
+        frameRate: 4.5,
         repeat: -1,
       });
     }
@@ -408,7 +405,7 @@ export function forgeAllTexturesAndAnims(scene: Phaser.Scene): void {
       scene.anims.create({
         key: `${key}_walk`,
         frames: scene.anims.generateFrameNumbers(key, { start: 0, end: 7 }),
-        frameRate: 12,
+        frameRate: 13,
         repeat: -1,
       });
     }
