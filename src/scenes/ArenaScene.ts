@@ -19,6 +19,7 @@ import {
   HEROES,
   HeroId,
   HeroStats,
+  RELICS,
   StageDefinition,
   StageId,
   STAGES,
@@ -986,16 +987,28 @@ export class ArenaScene extends Phaser.Scene {
         onComplete: () => iconSpr.destroy(),
       });
     }
-    this.hiddenAltarLabel?.setText(`✦ ${wDef.name} (Liberada)`).setColor('#9ef0ff');
+    const catDef = wDef.catalystRelic ? RELICS[wDef.catalystRelic] : undefined;
+    this.hiddenAltarLabel
+      ?.setText(`✦ ${wDef.name}${catDef ? ` + ${catDef.name}` : ''} (Liberados)`)
+      .setColor('#9ef0ff');
     this.compassArrowSprite?.destroy();
     this.compassArrowSprite = undefined;
 
     gothicAudio.playLevelUp();
     this.spawnRingBurst(pos.x, pos.y, 0xffe066, 28);
-    this.spawnFloatingNotice(this.heroX, this.heroY - 40, '✦ ARMA LIBERADA!', '#ffe79e');
+    this.spawnFloatingNotice(
+      this.heroX,
+      this.heroY - 40,
+      catDef ? '✦ ARMA & CATALISADOR LIBERADOS!' : '✦ ARMA LIBERADA!',
+      '#ffe79e'
+    );
     this.callbacks?.onBannerAnnouncement(
-      `ARMA SECRETA LIBERADA: ${wDef.name.toUpperCase()}`,
-      `Descoberta em ${this.stageDef.hiddenAltarName} e disponível na Forja!`
+      catDef
+        ? `LIBERADOS: ${wDef.name.toUpperCase()} + ${catDef.name.toUpperCase()}`
+        : `ARMA SECRETA LIBERADA: ${wDef.name.toUpperCase()}`,
+      catDef
+        ? `Descobertos em ${this.stageDef.hiddenAltarName} e disponíveis nas partidas!`
+        : `Descoberta em ${this.stageDef.hiddenAltarName} e disponível na Forja!`
     );
     this.callbacks?.onSaveRunCheckpoint?.(this.exportRunCheckpoint());
     this.pushHudUpdate();

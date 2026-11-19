@@ -51,8 +51,21 @@ test('verifies 4 difficulties, 36 Ultimate Power Grid icons, dense forest & fire
   await expect(page.getByTestId('forge-upgrade-btn')).toBeDisabled();
   await expect(page.getByTestId('forge-upgrade-btn')).toContainText('Fase I');
   await expect(page.getByTestId('arsenal-stage-weapons-list')).toBeVisible();
+  await expect(page.getByTestId('arsenal-stage-weapons-list')).toContainText('Coração Negro');
   await expect(page.getByTestId('arsenal-stage-weapons-list')).toContainText('Bíblia das Cinzas');
+  await expect(page.getByTestId('arsenal-stage-weapons-list')).toContainText('Selo de Âmbar');
   await expect(page.getByTestId('arsenal-stage-weapons-list')).toContainText('Turíbulo Sagrado');
+  await expect(page.getByTestId('arsenal-stage-weapons-list')).toContainText('Sangue de Mercúrio');
+
+  // Verify catalyst relics mirror their weapon lock state in the Synergy Matrix & Inspector
+  await expect(page.getByTestId('relic-tile-black_heart')).not.toHaveClass(/\blocked-tile\b/);
+  await expect(page.getByTestId('relic-tile-amber_seal')).toHaveClass(/\blocked-tile\b/);
+  await page.getByTestId('relic-tile-amber_seal').click();
+  await expect(page.getByTestId('relic-lock-status')).toContainText('Bloqueado');
+  await expect(page.getByTestId('relic-lock-status')).toContainText('Fase I');
+  await expect(page.getByTestId('forge-upgrade-btn')).toBeDisabled();
+  await page.getByTestId('relic-tile-black_heart').click();
+  await expect(page.getByTestId('relic-lock-status')).toContainText('Desbloqueado');
   await page.screenshot({ path: 'test-results/preview-power-grid.png' });
 
   // Return to Splash, then enter Hero Select -> verify all 8 Heroes (incl. Mordred, LinK, Antonio Cruz, Luisa Cruz) & Difficulty Selector
@@ -81,9 +94,13 @@ test('verifies 4 difficulties, 36 Ultimate Power Grid icons, dense forest & fire
   await expect(page.getByTestId('stage-card-forest')).toBeVisible();
   await page.getByTestId('stage-card-forest').click();
   await expect(page.getByTestId('stage-card-forest')).toContainText('Bíblia das Cinzas');
+  await expect(page.getByTestId('stage-card-forest')).toContainText('Selo de Âmbar');
   await expect(page.getByTestId('stage-hidden-weapon-info')).toContainText('Bíblia das Cinzas');
+  await expect(page.getByTestId('stage-hidden-weapon-info')).toContainText('Selo de Âmbar');
   await expect(page.getByTestId('stage-weapons-guide')).toBeVisible();
+  await expect(page.getByTestId('stage-weapons-guide')).toContainText('Selo de Âmbar');
   await expect(page.getByTestId('stage-weapons-guide')).toContainText('Turíbulo Sagrado');
+  await expect(page.getByTestId('stage-weapons-guide')).toContainText('Sangue de Mercúrio');
   await expect(page.locator('.showcase-footer')).toContainText('40:00');
   await expect(page.locator('.showcase-footer')).toContainText('HOLI SHIT!');
   await page.screenshot({ path: 'test-results/preview-stage-select.png' });

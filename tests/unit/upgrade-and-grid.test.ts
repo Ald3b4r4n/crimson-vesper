@@ -28,6 +28,7 @@ import {
   getAvailableEvolutions,
   getAvailableUltimates,
   isBaseWeaponUnlocked,
+  isRelicUnlocked,
   MAX_WEAPON_FORGE_LEVEL,
   MAX_WEAPON_SLOTS,
   resolveRelicChest,
@@ -267,7 +268,7 @@ describe('Vespera — Difficulties, Ultimates, 27 Enemies, 40-Min Stages & 36 Ic
     }
   });
 
-  it('enforces stage-hidden weapon locking on level-up and applies Out-of-Game Forge scaling', () => {
+  it('enforces stage-hidden weapon & catalyst relic locking on level-up and applies Out-of-Game Forge scaling', () => {
     const lockedInv = createInitialInventory('alaric', [...DEFAULT_UNLOCKED_WEAPONS], {
       whip: 4,
     });
@@ -277,15 +278,37 @@ describe('Vespera — Difficulties, Ultimates, 27 Enemies, 40-Min Stages & 36 Ic
     expect(isBaseWeaponUnlocked(lockedInv, 'bible')).toBe(false);
     expect(isBaseWeaponUnlocked(lockedInv, 'axe')).toBe(false);
 
+    // Catalysts unlock alongside their paired weapons
+    expect(isRelicUnlocked(lockedInv, 'black_heart')).toBe(true);
+    expect(isRelicUnlocked(lockedInv, 'empty_tome')).toBe(true);
+    expect(isRelicUnlocked(lockedInv, 'amber_seal')).toBe(false);
+    expect(isRelicUnlocked(lockedInv, 'crimson_candelabra')).toBe(false);
+
     const choices = buildUpgradeChoices(lockedInv, 6, () => 0.42);
     const offeredWeapons = choices.filter((c) => c.kind === 'weapon').map((c) => c.weaponId);
     for (const wId of offeredWeapons) {
       expect(['whip', 'wand']).toContain(wId);
     }
+    const offeredRelics = choices.filter((c) => c.kind === 'relic').map((c) => c.relicId);
+    for (const rId of offeredRelics) {
+      expect(['black_heart', 'empty_tome']).toContain(rId);
+    }
 
-    // Unlock bible -> now available in upgrade pool
+    // Unlock bible -> both bible and its catalyst (amber_seal) become unlocked
     lockedInv.unlockedWeapons!.push('bible');
     expect(isBaseWeaponUnlocked(lockedInv, 'bible')).toBe(true);
+    expect(isRelicUnlocked(lockedInv, 'amber_seal')).toBe(true);
+
+    // Hero starting with a locked stage weapon still unlocks its catalyst during that run,
+    // and evolved/ultimate forms preserve lineage unlock checks.
+    const kaelenInv = createInitialInventory('kaelen', [...DEFAULT_UNLOCKED_WEAPONS]);
+    expect(isBaseWeaponUnlocked(kaelenInv, 'axe')).toBe(true);
+    expect(isRelicUnlocked(kaelenInv, 'crimson_candelabra')).toBe(true);
+    delete kaelenInv.weapons.axe;
+    const axeEvoId = WEAPONS.axe.evolvesInto!;
+    kaelenInv.weapons[axeEvoId] = 1;
+    expect(isBaseWeaponUnlocked(kaelenInv, 'axe')).toBe(true);
+    expect(isRelicUnlocked(kaelenInv, 'crimson_candelabra')).toBe(true);
 
     // Out-of-Game Forge progression bonuses & early evolution at Lv.5
     expect(WEAPON_FORGE_COSTS).toHaveLength(MAX_WEAPON_FORGE_LEVEL);

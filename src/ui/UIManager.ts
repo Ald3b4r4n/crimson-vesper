@@ -748,6 +748,7 @@ export class UIManager {
     for (const st of STAGES) {
       const cleared = rec.clearedStages.includes(st.id);
       const stHiddenW = WEAPONS[st.hiddenWeapon];
+      const stHiddenCat = stHiddenW.catalystRelic ? RELICS[stHiddenW.catalystRelic] : undefined;
       const stUnlocked = rec.unlockedWeapons.includes(st.hiddenWeapon);
       const slot = document.createElement('button');
       slot.type = 'button';
@@ -760,7 +761,8 @@ export class UIManager {
           <div class="roster-slot-sub">${st.threatLabel} ${cleared ? '· 👑 Purificada' : ''}</div>
           <div class="roster-stage-weapon" style="color:${stUnlocked ? '#7be0ad' : '#ffd166'}">
             <img class="mini-icon-inline" src="${getWeaponIconUrl(st.hiddenWeapon)}" alt="${stHiddenW.name}" />
-            ${stUnlocked ? '✦ Liberada:' : '🔒 Libera:'} <strong>${stHiddenW.name}</strong>
+            ${stHiddenCat ? `<img class="mini-icon-inline" src="${getRelicIconUrl(stHiddenCat.id)}" alt="${stHiddenCat.name}" />` : ''}
+            ${stUnlocked ? '✦ Liberados:' : '🔒 Libera:'} <strong>${stHiddenW.name}${stHiddenCat ? ` + ${stHiddenCat.name}` : ''}</strong>
           </div>
         </div>
       `;
@@ -776,14 +778,17 @@ export class UIManager {
     const boss = ENEMIES[st.finalBoss];
     const cleared = rec.clearedStages.includes(st.id);
     const hiddenWeaponDef = WEAPONS[st.hiddenWeapon];
+    const hiddenCatDef = hiddenWeaponDef.catalystRelic ? RELICS[hiddenWeaponDef.catalystRelic] : undefined;
     const hiddenUnlocked = rec.unlockedWeapons.includes(st.hiddenWeapon);
     const stageGuideItems = STAGES.map((s) => {
       const hw = WEAPONS[s.hiddenWeapon];
+      const hCat = hw.catalystRelic ? RELICS[hw.catalystRelic] : undefined;
       const unlocked = rec.unlockedWeapons.includes(s.hiddenWeapon);
       return `
         <span class="stage-guide-chip ${unlocked ? 'unlocked' : 'locked'}">
           <img class="mini-icon-inline" src="${getWeaponIconUrl(s.hiddenWeapon)}" alt="${hw.name}" />
-          <strong>F.${s.roman}:</strong> ${hw.name} ${unlocked ? '✦' : '🔒'}
+          ${hCat ? `<img class="mini-icon-inline" src="${getRelicIconUrl(hCat.id)}" alt="${hCat.name}" />` : ''}
+          <strong>F.${s.roman}:</strong> ${hw.name}${hCat ? ` + ${hCat.name}` : ''} ${unlocked ? '✦' : '🔒'}
         </span>
       `;
     }).join('');
@@ -821,14 +826,15 @@ export class UIManager {
         </div>
         <div style="font-size:0.74rem; color:${hiddenUnlocked ? '#7be0ad' : '#ffd166'}; margin-bottom:6px" data-testid="stage-hidden-weapon-info">
           <img class="mini-icon-inline" src="${getWeaponIconUrl(st.hiddenWeapon)}" alt="${hiddenWeaponDef.name}" />
+          ${hiddenCatDef ? `<img class="mini-icon-inline" src="${getRelicIconUrl(hiddenCatDef.id)}" alt="${hiddenCatDef.name}" />` : ''}
           ${
             hiddenUnlocked
-              ? `✦ Arma da Região Liberada: <strong>${hiddenWeaponDef.name}</strong>`
-              : `🧭 Escondida no Cenário: <strong>${hiddenWeaponDef.name}</strong> (${st.hiddenAltarName})`
+              ? `✦ Arma & Catalisador Liberados: <strong>${hiddenWeaponDef.name}${hiddenCatDef ? ` + ${hiddenCatDef.name}` : ''}</strong>`
+              : `🧭 Escondidos no Cenário: <strong>${hiddenWeaponDef.name}${hiddenCatDef ? ` + ${hiddenCatDef.name}` : ''}</strong> (${st.hiddenAltarName})`
           }
         </div>
         <div class="stage-weapons-guide" data-testid="stage-weapons-guide">
-          <div class="stage-guide-title">🗺 Armas Liberadas em Cada Fase (Iniciais: Açoite Consagrado & Cetro de Estilhaços)</div>
+          <div class="stage-guide-title">🗺 Armas & Catalisadores por Fase (Iniciais: Açoite Consagrado + Coração Negro · Cetro de Estilhaços + Tomo Vazio)</div>
           <div class="stage-guide-grid">${stageGuideItems}</div>
         </div>
       </div>
@@ -910,7 +916,7 @@ export class UIManager {
           this.inspectedPower.kind === target.kind && this.inspectedPower.id === target.id;
         const btn = document.createElement('button');
         btn.type = 'button';
-        const isLockedBase = tier === 'base' && target.kind === 'weapon' && !isBaseUnlocked;
+        const isLockedBase = tier === 'base' && !isBaseUnlocked;
         const tierCls =
           tier === 'ultimate' ? 'ultimate-tile' : tier === 'evolved' ? 'evolved-tile' : '';
         btn.className = `power-icon-tile ${tierCls} ${isLockedBase ? 'locked-tile' : ''} ${isSel ? 'selected' : ''}`;
@@ -919,7 +925,11 @@ export class UIManager {
         } else {
           btn.dataset.testid = `relic-tile-${target.id}`;
         }
-        btn.title = isLockedBase ? `${label} (🔒 Escondida no cenário)` : label;
+        btn.title = isLockedBase
+          ? target.kind === 'relic'
+            ? `${label} (🔒 Catalisador bloqueado — libere a arma da fase)`
+            : `${label} (🔒 Escondida no cenário)`
+          : label;
         btn.innerHTML = `
           <img class="power-icon-img" src="${iconUrl}" alt="${label}" />
           ${
@@ -1038,17 +1048,28 @@ export class UIManager {
       const synW = WEAPONS[r.synergyWeapon];
       const evo = synW.evolvesInto ? WEAPONS[synW.evolvesInto] : null;
       const ult = evo?.ultimateInto ? WEAPONS[evo.ultimateInto] : null;
+      const relicUnlocked = rec.unlockedWeapons.includes(r.synergyWeapon);
+      const relicStage = getWeaponDiscoveryStage(r.synergyWeapon);
       inspector.innerHTML = `
         <div>
           <div style="display:flex; align-items:center; gap:14px; margin-bottom:10px">
-            <div class="power-icon-tile selected" style="width:72px; height:72px; margin:0; cursor:default">
+            <div class="power-icon-tile ${relicUnlocked ? '' : 'locked-tile'} selected" style="width:72px; height:72px; margin:0; cursor:default">
               <img class="power-icon-img" src="${getRelicIconUrl(r.id)}" alt="${r.name}" />
+              ${relicUnlocked ? '' : '<span class="lock-corner">🔒</span>'}
             </div>
             <div>
               <div style="font-size:0.72rem; color:#ffd166; text-transform:uppercase; font-weight:700">Relíquia Passiva · Máximo Grau ${r.maxLevel}</div>
               <h3 style="font-family:var(--font-display); font-size:1.4rem; color:var(--gold-bright); margin:2px 0">${r.name}</h3>
               <div style="font-size:0.76rem; color:var(--text-muted)">${r.tagline}</div>
             </div>
+          </div>
+
+          <div style="font-size:0.78rem; margin:6px 0; color:${relicUnlocked ? '#7be0ad' : '#ffb3c1'}" data-testid="relic-lock-status">
+            ${
+              relicUnlocked
+                ? `✦ Catalisador Desbloqueado (liberado com ${synW.name})`
+                : `🔒 Catalisador Bloqueado · Libera na Fase ${relicStage?.roman ?? '?'} junto com ${synW.name} (${relicStage?.hiddenAltarName ?? ''})`
+            }
           </div>
 
           <p style="font-size:0.92rem; color:var(--text-ivory); margin:12px 0">${r.bonusPerLevel}</p>
@@ -1082,6 +1103,7 @@ export class UIManager {
         : RELICS[this.inspectedPower.id].synergyWeapon;
 
     const baseWDef = WEAPONS[lineageBaseId];
+    const baseCatDef = baseWDef.catalystRelic ? RELICS[baseWDef.catalystRelic] : undefined;
     const isUnlocked = rec.unlockedWeapons.includes(lineageBaseId);
     const forgeLv = rec.weaponForge[lineageBaseId] ?? 0;
     const fb = computeWeaponForgeBonus(forgeLv);
@@ -1100,8 +1122,8 @@ export class UIManager {
       <div class="forge-status-line" data-testid="forge-lock-status">
         ${
           isUnlocked
-            ? `<span style="color:#7be0ad">✦ Linhagem Desbloqueada & Disponível nas Fases</span>`
-            : `<span style="color:#ffb3c1">🔒 Oculta na Fase ${discStage?.roman ?? '?'}: ${discStage?.name ?? ''} (${discStage?.hiddenAltarName ?? ''})</span>`
+            ? `<span style="color:#7be0ad">✦ Linhagem Desbloqueada (${baseWDef.name}${baseCatDef ? ` + ${baseCatDef.name}` : ''}) & Disponível nas Fases</span>`
+            : `<span style="color:#ffb3c1">🔒 Oculta na Fase ${discStage?.roman ?? '?'}: ${discStage?.name ?? ''} — libera ${baseWDef.name}${baseCatDef ? ` + ${baseCatDef.name}` : ''} (${discStage?.hiddenAltarName ?? ''})</span>`
         }
       </div>
       <div class="forge-bonus-grid">
@@ -1131,24 +1153,27 @@ export class UIManager {
     });
     inspector.appendChild(forgeEl);
 
-    // Compact Per-Stage Weapon Discovery Table
+    // Compact Per-Stage Weapon & Catalyst Discovery Table
     const guideRowsHtml = [
       `<div class="arsenal-guide-row unlocked">
         <span><strong>Iniciais:</strong></span>
         <span>
-          <img class="mini-icon-inline" src="${getWeaponIconUrl('whip')}" alt="" /> ${WEAPONS.whip.name} ·
-          <img class="mini-icon-inline" src="${getWeaponIconUrl('wand')}" alt="" /> ${WEAPONS.wand.name}
+          <img class="mini-icon-inline" src="${getWeaponIconUrl('whip')}" alt="" /> ${WEAPONS.whip.name} +
+          <img class="mini-icon-inline" src="${getRelicIconUrl('black_heart')}" alt="" /> ${RELICS.black_heart.name} ·
+          <img class="mini-icon-inline" src="${getWeaponIconUrl('wand')}" alt="" /> ${WEAPONS.wand.name} +
+          <img class="mini-icon-inline" src="${getRelicIconUrl('empty_tome')}" alt="" /> ${RELICS.empty_tome.name}
         </span>
         <span class="guide-badge unlocked">✦ Iniciais</span>
       </div>`,
       ...STAGES.map((st) => {
         const w = WEAPONS[st.hiddenWeapon];
+        const c = w.catalystRelic ? RELICS[w.catalystRelic] : undefined;
         const unlocked = rec.unlockedWeapons.includes(st.hiddenWeapon);
         return `
           <div class="arsenal-guide-row ${unlocked ? 'unlocked' : 'locked'}">
             <span><strong>Fase ${st.roman}</strong> (${st.name}):</span>
-            <span><img class="mini-icon-inline" src="${getWeaponIconUrl(st.hiddenWeapon)}" alt="${w.name}" /> ${w.name}</span>
-            <span class="guide-badge ${unlocked ? 'unlocked' : 'locked'}">${unlocked ? '✦ Liberada' : '🔒 Oculta'}</span>
+            <span><img class="mini-icon-inline" src="${getWeaponIconUrl(st.hiddenWeapon)}" alt="${w.name}" /> ${w.name}${c ? ` + <img class="mini-icon-inline" src="${getRelicIconUrl(c.id)}" alt="${c.name}" /> ${c.name}` : ''}</span>
+            <span class="guide-badge ${unlocked ? 'unlocked' : 'locked'}">${unlocked ? '✦ Liberados' : '🔒 Ocultos'}</span>
           </div>
         `;
       }),
@@ -1158,7 +1183,7 @@ export class UIManager {
     stageListEl.className = 'arsenal-stage-weapons-list';
     stageListEl.dataset.testid = 'arsenal-stage-weapons-list';
     stageListEl.innerHTML = `
-      <div class="forge-title" style="margin-bottom:6px">🗺 Guia: Onde Liberar Cada Arma por Fase</div>
+      <div class="forge-title" style="margin-bottom:6px">🗺 Guia: Onde Liberar Cada Arma & Catalisador por Fase</div>
       <div class="arsenal-guide-rows">${guideRowsHtml}</div>
     `;
     inspector.appendChild(stageListEl);

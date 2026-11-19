@@ -151,8 +151,21 @@ export function createInitialInventory(
 
 export function isBaseWeaponUnlocked(inv: InventoryState, wId: BaseWeaponId): boolean {
   if ((inv.weapons[wId] ?? 0) > 0) return true;
+  const evoId = WEAPONS[wId].evolvesInto;
+  if (evoId && (inv.weapons[evoId] ?? 0) > 0) return true;
+  const ultId = evoId ? WEAPONS[evoId].ultimateInto : undefined;
+  if (ultId && (inv.weapons[ultId] ?? 0) > 0) return true;
   if (!inv.unlockedWeapons) return true;
   return inv.unlockedWeapons.includes(wId);
+}
+
+/**
+ * Each catalyst relic unlocks alongside its paired synergy weapon (initial weapons
+ * + hero's starting weapon + stage-discovered weapons, or if already held).
+ */
+export function isRelicUnlocked(inv: InventoryState, rId: RelicId): boolean {
+  if ((inv.relics[rId] ?? 0) > 0) return true;
+  return isBaseWeaponUnlocked(inv, RELICS[rId].synergyWeapon);
 }
 
 export function computeEffectiveStats(inv: InventoryState): HeroStats {
@@ -385,6 +398,7 @@ export function buildUpgradeChoices(
     const current = inv.relics[rId] ?? 0;
     if (current >= def.maxLevel) continue;
     if (current === 0 && ownedRelicCount >= MAX_RELIC_SLOTS) continue;
+    if (current === 0 && !isRelicUnlocked(inv, rId)) continue;
     if (current === 0 && lockToActivePairs && !activePairs.has(def.synergyWeapon)) {
       continue;
     }
