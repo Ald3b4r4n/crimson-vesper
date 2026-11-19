@@ -8,6 +8,8 @@ import {
 import { gothicAudio } from '../audio/GothicAudio';
 import { gothicSoundtrack } from '../audio/GothicSoundtrack';
 import {
+  BaseWeaponId,
+  DEFAULT_UNLOCKED_WEAPONS,
   DIFFICULTIES,
   DifficultyDefinition,
   DifficultyId,
@@ -20,6 +22,7 @@ import {
   StageDefinition,
   StageId,
   STAGES,
+  WEAPONS,
 } from '../data/loreData';
 import { SpatialGrid } from '../game/SpatialGrid';
 import {
@@ -27,11 +30,14 @@ import {
   buildUpgradeChoices,
   computeEffectiveStats,
   computeIntraMatchEscalation,
+  computeWeaponForgeBonus,
   createInitialInventory,
   IntraMatchEscalation,
   InventoryState,
+  MAX_WEAPON_SLOTS,
   resolveRelicChest,
   UpgradeChoice,
+  WeaponForgeBonus,
   xpRequiredForLevel,
 } from '../game/UpgradeLogic';
 
@@ -58,6 +64,15 @@ export interface HudSnapshot {
     name: string;
     hp: number;
     maxHp: number;
+  };
+  hiddenWeapon?: {
+    weaponId: BaseWeaponId;
+    weaponName: string;
+    altarName: string;
+    alreadyUnlocked: boolean;
+    claimedInRun: boolean;
+    distanceMeters: number;
+    angleDeg: number;
   };
 }
 
@@ -92,6 +107,7 @@ export interface ArenaCallbacks {
     onContinueTo40: () => void,
     onFinishStageNow: () => void
   ) => void;
+  onWeaponDiscovered?: (weaponId: BaseWeaponId) => void;
   onRunEnded: (summary: RunSummary) => void;
 }
 
@@ -273,6 +289,16 @@ export class ArenaScene extends Phaser.Scene {
   private subBossTimer = 75;
   private subBossWaveIndex = 0;
 
+  // Stage-Hidden Weapon Altar & Meta Progression
+  private metaUnlockedWeapons: BaseWeaponId[] = [...DEFAULT_UNLOCKED_WEAPONS];
+  private metaWeaponForge: Partial<Record<BaseWeaponId, number>> = {};
+  private hiddenAltarClaimed = false;
+  private hiddenAltarSprite?: Phaser.GameObjects.Image;
+  private hiddenAltarGlow?: Phaser.GameObjects.Image;
+  private hiddenAltarShadow?: Phaser.GameObjects.Image;
+  private hiddenAltarLabel?: Phaser.GameObjects.Text;
+  private compassArrowSprite?: Phaser.GameObjects.Image;
+
   // Hero
   private heroSprite!: Phaser.GameObjects.Sprite;
   private heroShadow!: Phaser.GameObjects.Image;
@@ -339,13 +365,21 @@ export class ArenaScene extends Phaser.Scene {
     heroId: HeroId,
     stageId: StageId,
     difficultyId: DifficultyId,
-    callbacks: ArenaCallbacks
+    callbacks: ArenaCallbacks,
+    metaProgression?: {
+      unlockedWeapons: BaseWeaponId[];
+      weaponForge: Partial<Record<BaseWeaponId, number>>;
+    }
   ): void {
     this.heroId = heroId;
     this.stageDef = STAGES.find((s) => s.id === stageId) ?? STAGES[0];
     this.difficultyId = difficultyId;
     this.difficultyDef = DIFFICULTIES[difficultyId] ?? DIFFICULTIES.normal;
     this.callbacks = callbacks;
+    this.metaUnlockedWeapons = metaProgression?.unlockedWeapons?.length
+      ? [...metaProgression.unlockedWeapons]
+      : [...DEFAULT_UNLOCKED_WEAPONS];
+    this.metaWeaponForge = metaProgression?.weaponForge ? { ...metaProgression.weaponForge } : {};
   }
 
   setVirtualJoystick(dx: number, dy: number): void {
@@ -426,8 +460,18 @@ export class ArenaScene extends Phaser.Scene {
     this.hordeSurgeTimer = this.difficultyDef.surgeIntervalSec;
     this.subBossTimer = Math.round(this.difficultyDef.subBossIntervalSec * 0.85);
     this.subBossWaveIndex = 0;
+    this.hiddenAltarClaimed = false;
+    this.hiddenAltarSprite = undefined;
+    this.hiddenAltarGlow = undefined;
+    this.hiddenAltarShadow = undefined;
+    this.hiddenAltarLabel = undefined;
+    this.compassArrowSprite = undefined;
 
-    this.inventory = createInitialInventory(this.heroId);
+    this.inventory = createInitialInventory(
+      this.heroId,
+      this.metaUnlockedWeapons,
+      this.metaWeaponForge
+    );
     this.stats = computeEffectiveStats(this.inventory);
     this.hp = this.stats.maxHp;
     this.trailingHp = this.hp;
@@ -475,8 +519,9 @@ export class ArenaScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setDepth(-28);
 
-    // 2. Populate Ruins, Vegetation Clusters & Breakable Objects!
+    // 2. Populate Ruins, Vegetation Clusters, Breakables & Hidden Stage Weapon Altar!
     this.initRuinsVegetationAndBreakables();
+    this.spawnHiddenWeaponAltar();
 
     // 3. Thurible Sanctuary Aura
     this.thuribleAura = this.add
@@ -721,6 +766,100 @@ export class ArenaScene extends Phaser.Scene {
         wobbleTimer: 0,
       });
     }
+  }
+
+  private spawnHiddenWeaponAltar(): void {
+    const pos = this.stageDef.hiddenAltarPos;
+    const wDef = WEAPONS[this.stageDef.hiddenWeapon];
+    const alreadyUnlocked = this.metaUnlockedWeapons.includes(this.stageDef.hiddenWeapon);
+
+    this.hiddenAltarShadow = this.add
+      .image(pos.x, pos.y + 42, 'vfx_shadow')
+      .setDepth(3)
+      .setScale(1.6, 1.0)
+      .setAlpha(0.65);
+
+    this.hiddenAltarGlow = this.add
+      .image(pos.x, pos.y - 12, 'vfx_aura_ring')
+      .setDepth(ySortDepth(pos.y, -0.04))
+      .setScale(0.75)
+      .setTint(alreadyUnlocked ? 0x67d4ff : 0xffd166)
+      .setAlpha(0.76)
+      .setBlendMode(Phaser.BlendModes.ADD);
+
+    this.hiddenAltarSprite = this.add
+      .image(pos.x, pos.y, 'prop_weapon_altar')
+      .setDepth(ySortDepth(pos.y + 30))
+      .setScale(1.0);
+
+    this.hiddenAltarLabel = this.add
+      .text(pos.x, pos.y - 62, `✦ ${wDef.name}`, {
+        fontFamily: 'Cinzel, Georgia, serif',
+        fontSize: '13px',
+        fontStyle: 'bold',
+        color: alreadyUnlocked ? '#9ef0ff' : '#ffe79e',
+        stroke: '#120710',
+        strokeThickness: 3.5,
+      })
+      .setOrigin(0.5)
+      .setDepth(30);
+
+    this.compassArrowSprite = this.add
+      .image(this.heroX + 76, this.heroY, 'vfx_compass_arrow')
+      .setDepth(31)
+      .setTint(alreadyUnlocked ? 0x67d4ff : 0xffe066)
+      .setScale(1.05)
+      .setAlpha(0.92);
+  }
+
+  private claimHiddenWeaponAltar(): void {
+    if (this.hiddenAltarClaimed) return;
+    this.hiddenAltarClaimed = true;
+
+    const pos = this.stageDef.hiddenAltarPos;
+    const wId = this.stageDef.hiddenWeapon;
+    const wDef = WEAPONS[wId];
+
+    if (!this.inventory.unlockedWeapons) {
+      this.inventory.unlockedWeapons = [...this.metaUnlockedWeapons];
+    }
+    if (!this.inventory.unlockedWeapons.includes(wId)) {
+      this.inventory.unlockedWeapons.push(wId);
+    }
+    if (!this.metaUnlockedWeapons.includes(wId)) {
+      this.metaUnlockedWeapons.push(wId);
+    }
+    this.callbacks?.onWeaponDiscovered?.(wId);
+
+    const prevMaxHp = this.stats.maxHp;
+    const currentLv = this.inventory.weapons[wId] ?? 0;
+    const ownedCount = Object.keys(this.inventory.weapons).length;
+    if (currentLv === 0 && ownedCount < MAX_WEAPON_SLOTS) {
+      this.inventory.weapons[wId] = this.getForgeBonus(wId).startingLevel;
+    } else if (currentLv > 0 && currentLv < wDef.maxLevel) {
+      this.inventory.weapons[wId] = currentLv + 1;
+    } else {
+      this.inventory.ascensionMight = (this.inventory.ascensionMight ?? 0) + 0.1;
+      this.inventory.souls += 80;
+    }
+    this.stats = computeEffectiveStats(this.inventory);
+    const hpDelta = Math.max(0, this.stats.maxHp - prevMaxHp);
+    this.hp = Math.min(this.stats.maxHp, this.hp + hpDelta + 25);
+
+    this.hiddenAltarGlow?.setTint(0x67d4ff).setAlpha(0.28).setScale(0.45);
+    this.hiddenAltarSprite?.setTint(0x7c8ea6).setAlpha(0.72);
+    this.hiddenAltarLabel?.setText(`✦ ${wDef.name} (Liberada)`).setColor('#9ef0ff');
+    this.compassArrowSprite?.destroy();
+    this.compassArrowSprite = undefined;
+
+    gothicAudio.playLevelUp();
+    this.spawnRingBurst(pos.x, pos.y, 0xffe066, 28);
+    this.spawnFloatingNotice(this.heroX, this.heroY - 40, '✦ ARMA LIBERADA!', '#ffe79e');
+    this.callbacks?.onBannerAnnouncement(
+      `ARMA SECRETA LIBERADA: ${wDef.name.toUpperCase()}`,
+      `Descoberta em ${this.stageDef.hiddenAltarName} e disponível na Forja!`
+    );
+    this.pushHudUpdate();
   }
 
   private isSimulationPaused(): boolean {
@@ -1133,6 +1272,36 @@ export class ArenaScene extends Phaser.Scene {
         pk.sprite.destroy();
         pk.glow.destroy();
         this.pickups.splice(i, 1);
+      }
+    }
+
+    // Update Stage-Hidden Weapon Altar & Directional Compass Arrow
+    if (!this.hiddenAltarClaimed && this.hiddenAltarSprite) {
+      const altarPos = this.stageDef.hiddenAltarPos;
+      const adx = altarPos.x - this.heroX;
+      const ady = altarPos.y - this.heroY;
+      const adist = Math.hypot(adx, ady);
+      const ang = Math.atan2(ady, adx);
+
+      this.hiddenAltarGlow
+        ?.setScale(0.72 + Math.sin(time * 0.005) * 0.1)
+        .setRotation(time * 0.0008);
+      if (this.hiddenAltarLabel) {
+        this.hiddenAltarLabel.y = altarPos.y - 62 + Math.sin(time * 0.004) * 3;
+      }
+
+      if (this.compassArrowSprite) {
+        const showArrow = adist > 82;
+        this.compassArrowSprite.setVisible(showArrow);
+        if (showArrow) {
+          this.compassArrowSprite
+            .setPosition(this.heroX + Math.cos(ang) * 76, this.heroY + Math.sin(ang) * 76)
+            .setRotation(ang);
+        }
+      }
+
+      if (adist <= 54) {
+        this.claimHiddenWeaponAltar();
       }
     }
   }
@@ -1587,8 +1756,12 @@ export class ArenaScene extends Phaser.Scene {
     }
   }
 
-  private rollCrit(force = false): boolean {
-    return force || Math.random() < this.stats.critChance;
+  private getForgeBonus(baseId: BaseWeaponId): WeaponForgeBonus {
+    return computeWeaponForgeBonus(this.inventory?.weaponForge?.[baseId] ?? 0);
+  }
+
+  private rollCrit(force = false, bonusCrit = 0): boolean {
+    return force || Math.random() < Math.min(0.95, this.stats.critChance + bonusCrit);
   }
 
   private updateWeapons(time: number, dt: number): void {
@@ -1601,7 +1774,7 @@ export class ArenaScene extends Phaser.Scene {
       if (this.weaponTimers.whip <= 0) {
         const baseCd =
           whipTier === 2 ? 0.65 : whipTier === 1 ? 0.82 : Math.max(0.92, 1.3 - whipLv * 0.08);
-        this.weaponTimers.whip = baseCd * this.stats.cooldown;
+        this.weaponTimers.whip = baseCd * this.stats.cooldown * this.getForgeBonus('whip').cooldownMult;
         this.fireWhipSlash(whipLv, whipTier);
       }
     }
@@ -1613,7 +1786,7 @@ export class ArenaScene extends Phaser.Scene {
       if (this.weaponTimers.wand <= 0) {
         const baseCd =
           wandTier === 2 ? 0.13 : wandTier === 1 ? 0.16 : Math.max(0.45, 0.84 - wandLv * 0.09);
-        this.weaponTimers.wand = baseCd * this.stats.cooldown;
+        this.weaponTimers.wand = baseCd * this.stats.cooldown * this.getForgeBonus('wand').cooldownMult;
         this.fireWandBolts(wandLv, wandTier);
       }
     }
@@ -1629,7 +1802,7 @@ export class ArenaScene extends Phaser.Scene {
       if (this.weaponTimers.axe <= 0) {
         const baseCd =
           axeTier === 2 ? 0.85 : axeTier === 1 ? 1.1 : Math.max(1.2, 1.8 - axeLv * 0.1);
-        this.weaponTimers.axe = baseCd * this.stats.cooldown;
+        this.weaponTimers.axe = baseCd * this.stats.cooldown * this.getForgeBonus('axe').cooldownMult;
         this.fireAxesOrScythes(axeLv, axeTier);
       }
     }
@@ -1647,7 +1820,8 @@ export class ArenaScene extends Phaser.Scene {
       if (this.weaponTimers.lightning <= 0) {
         const baseCd =
           lightTier === 2 ? 0.92 : lightTier === 1 ? 1.25 : Math.max(1.55, 2.45 - lightLv * 0.16);
-        this.weaponTimers.lightning = baseCd * this.stats.cooldown;
+        this.weaponTimers.lightning =
+          baseCd * this.stats.cooldown * this.getForgeBonus('lightning').cooldownMult;
         this.fireLightningStrikes(lightLv, lightTier);
       }
     }
@@ -1660,7 +1834,8 @@ export class ArenaScene extends Phaser.Scene {
       if (this.weaponTimers.daggers <= 0) {
         const baseCd =
           daggersTier === 2 ? 0.18 : daggersTier === 1 ? 0.22 : Math.max(0.55, 0.95 - daggersLv * 0.08);
-        this.weaponTimers.daggers = baseCd * this.stats.cooldown;
+        this.weaponTimers.daggers =
+          baseCd * this.stats.cooldown * this.getForgeBonus('daggers').cooldownMult;
         this.firePhantomDaggers(daggersLv, daggersTier);
       }
     }
@@ -1673,7 +1848,7 @@ export class ArenaScene extends Phaser.Scene {
       if (this.weaponTimers.flask <= 0) {
         const baseCd =
           flaskTier === 2 ? 1.45 : flaskTier === 1 ? 1.8 : Math.max(2.1, 3.0 - flaskLv * 0.16);
-        this.weaponTimers.flask = baseCd * this.stats.cooldown;
+        this.weaponTimers.flask = baseCd * this.stats.cooldown * this.getForgeBonus('flask').cooldownMult;
         this.fireAlchemicalFlasks(flaskLv, flaskTier);
       }
     }
@@ -1686,7 +1861,7 @@ export class ArenaScene extends Phaser.Scene {
       if (this.weaponTimers.cross <= 0) {
         const baseCd =
           crossTier === 2 ? 0.85 : crossTier === 1 ? 1.05 : Math.max(1.15, 1.75 - crossLv * 0.1);
-        this.weaponTimers.cross = baseCd * this.stats.cooldown;
+        this.weaponTimers.cross = baseCd * this.stats.cooldown * this.getForgeBonus('cross').cooldownMult;
         this.fireJudgmentCrosses(crossLv, crossTier);
       }
     }
@@ -1695,13 +1870,19 @@ export class ArenaScene extends Phaser.Scene {
   private fireWhipSlash(lv: number, tier: 0 | 1 | 2): void {
     this.triggerHeroAttackAnim();
     gothicAudio.playWhip(tier > 0);
+    const fb = this.getForgeBonus('whip');
     const slashes =
       (tier === 2 ? 4 : tier === 1 ? (lv >= 3 ? 3 : 2) : lv >= 2 ? 2 : 1) +
-      Math.min(2, this.stats.amount);
+      Math.min(2, this.stats.amount) +
+      fb.bonusAmount;
     const baseDamage =
-      (tier === 2 ? 92 : tier === 1 ? 48 + lv * 10 : 20 + lv * 7.5) * this.stats.might;
+      (tier === 2 ? 92 : tier === 1 ? 48 + lv * 10 : 20 + lv * 7.5) *
+      this.stats.might *
+      fb.damageMult;
     const areaScale =
-      (tier === 2 ? 1.95 : tier === 1 ? 1.38 + lv * 0.1 : 1 + lv * 0.08) * this.stats.area;
+      (tier === 2 ? 1.95 : tier === 1 ? 1.38 + lv * 0.1 : 1 + lv * 0.08) *
+      this.stats.area *
+      fb.areaMult;
 
     for (let i = 0; i < slashes; i++) {
       const dir = i % 2 === 0 ? this.facing : -this.facing;
@@ -1739,7 +1920,7 @@ export class ArenaScene extends Phaser.Scene {
             Math.abs(enemy.x - sx) <= reachX + enemy.radius &&
             Math.abs(enemy.y - sy) <= reachY + enemy.radius
           ) {
-            const isCrit = this.rollCrit(tier > 0);
+            const isCrit = this.rollCrit(tier > 0, this.getForgeBonus('whip').critBonus);
             this.damageEnemy(
               enemy,
               isCrit ? baseDamage * (tier === 2 ? 1.75 : 1.55) : baseDamage,
@@ -1759,11 +1940,15 @@ export class ArenaScene extends Phaser.Scene {
     if (!nearest) return;
 
     this.triggerHeroAttackAnim();
+    const fb = this.getForgeBonus('wand');
     const count =
       (tier === 2 ? 3 : tier === 1 ? 1 + Math.floor(lv / 2) : 1 + Math.floor(lv / 2)) +
-      this.stats.amount;
+      this.stats.amount +
+      fb.bonusAmount;
     const damage =
-      (tier === 2 ? 42 : tier === 1 ? 26 + lv * 6 : 15 + lv * 5.5) * this.stats.might;
+      (tier === 2 ? 42 : tier === 1 ? 26 + lv * 6 : 15 + lv * 5.5) *
+      this.stats.might *
+      fb.damageMult;
     const pierce = tier === 2 ? 6 : tier === 1 ? 3 + lv : lv >= 3 ? 2 : 1;
 
     for (let i = 0; i < count; i++) {
@@ -1778,7 +1963,7 @@ export class ArenaScene extends Phaser.Scene {
         const sprite = this.add
           .image(this.heroX, this.heroY - 6, 'vfx_wand_bolt')
           .setDepth(20)
-          .setScale(this.stats.area * (tier === 2 ? 1.55 : tier === 1 ? 1.25 : 1))
+          .setScale(this.stats.area * fb.areaMult * (tier === 2 ? 1.55 : tier === 1 ? 1.25 : 1))
           .setRotation(angle)
           .setTint(tier === 2 ? 0x00e5ff : tier === 1 ? 0x9ef0ff : 0xffffff)
           .setBlendMode(Phaser.BlendModes.ADD);
@@ -1795,11 +1980,11 @@ export class ArenaScene extends Phaser.Scene {
           spinSpeed: 0,
           damage,
           pierce,
-          radius: 13 * this.stats.area,
+          radius: 13 * this.stats.area * fb.areaMult,
           life: 1.5,
-          crit: this.rollCrit(tier === 2),
+          crit: this.rollCrit(tier === 2, fb.critBonus),
           lifeSteal: 0,
-          aoeBurstRadius: tier === 2 ? 64 * this.stats.area : undefined,
+          aoeBurstRadius: tier === 2 ? 64 * this.stats.area * fb.areaMult : undefined,
           hitIds: new Set(),
         });
       });
@@ -1808,10 +1993,15 @@ export class ArenaScene extends Phaser.Scene {
 
   private firePhantomDaggers(lv: number, tier: 0 | 1 | 2): void {
     this.triggerHeroAttackAnim();
+    const fb = this.getForgeBonus('daggers');
     const count =
-      (tier === 2 ? 7 : tier === 1 ? 3 + lv : 2 + Math.floor(lv * 0.8)) + this.stats.amount;
+      (tier === 2 ? 7 : tier === 1 ? 3 + lv : 2 + Math.floor(lv * 0.8)) +
+      this.stats.amount +
+      fb.bonusAmount;
     const damage =
-      (tier === 2 ? 44 : tier === 1 ? 26 + lv * 6 : 14 + lv * 5) * this.stats.might;
+      (tier === 2 ? 44 : tier === 1 ? 26 + lv * 6 : 14 + lv * 5) *
+      this.stats.might *
+      fb.damageMult;
     const baseAngle = Math.atan2(this.aimY, this.aimX);
     const speed = (tier === 2 ? 780 : tier === 1 ? 680 : 520 + lv * 25) * this.stats.projSpeed;
 
@@ -1822,7 +2012,7 @@ export class ArenaScene extends Phaser.Scene {
       const sprite = this.add
         .image(this.heroX, this.heroY - 4, 'vfx_dagger')
         .setDepth(20)
-        .setScale(this.stats.area * (tier === 2 ? 1.5 : tier === 1 ? 1.3 : 1.05))
+        .setScale(this.stats.area * fb.areaMult * (tier === 2 ? 1.5 : tier === 1 ? 1.3 : 1.05))
         .setRotation(angle)
         .setTint(tier === 2 ? 0x9ef0ff : tier === 1 ? 0xffffff : 0xcaf0f8)
         .setBlendMode(Phaser.BlendModes.ADD);
@@ -1839,9 +2029,9 @@ export class ArenaScene extends Phaser.Scene {
         spinSpeed: 0,
         damage,
         pierce: tier === 2 ? 7 : tier === 1 ? 4 + lv : lv >= 3 ? 2 : 1,
-        radius: 12 * this.stats.area,
+        radius: 12 * this.stats.area * fb.areaMult,
         life: 1.18,
-        crit: this.rollCrit(tier === 2 || (tier === 1 && Math.random() < 0.45)),
+        crit: this.rollCrit(tier === 2 || (tier === 1 && Math.random() < 0.45), fb.critBonus),
         lifeSteal: 0,
         hitIds: new Set(),
       });
@@ -1849,13 +2039,19 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private fireAlchemicalFlasks(lv: number, tier: 0 | 1 | 2): void {
+    const fb = this.getForgeBonus('flask');
     const count =
       (tier === 2 ? 4 : tier === 1 ? 2 + lv : 1 + Math.floor(lv / 2)) +
-      Math.min(2, this.stats.amount);
+      Math.min(2, this.stats.amount) +
+      fb.bonusAmount;
     const poolRadius =
-      (tier === 2 ? 130 : tier === 1 ? 85 + lv * 10 : 54 + lv * 7) * this.stats.area;
+      (tier === 2 ? 130 : tier === 1 ? 85 + lv * 10 : 54 + lv * 7) *
+      this.stats.area *
+      fb.areaMult;
     const poolDamage =
-      (tier === 2 ? 44 : tier === 1 ? 22 + lv * 5 : 9 + lv * 3.8) * this.stats.might;
+      (tier === 2 ? 44 : tier === 1 ? 22 + lv * 5 : 9 + lv * 3.8) *
+      this.stats.might *
+      fb.damageMult;
     const duration = tier === 2 ? 5.2 : tier === 1 ? 4.4 : 2.8 + lv * 0.25;
     const palette: FirePoolRuntime['palette'] =
       tier === 2 ? 'hellfire' : tier === 1 ? 'purifying' : 'alchemical';
@@ -2125,8 +2321,15 @@ export class ArenaScene extends Phaser.Scene {
   private fireJudgmentCrosses(lv: number, tier: 0 | 1 | 2): void {
     this.triggerHeroAttackAnim();
     gothicAudio.playAxe();
-    const count = (tier === 2 ? 5 : tier === 1 ? 2 + (lv >= 2 ? 1 : 0) : lv >= 3 ? 2 : 1) + this.stats.amount;
-    const damage = (tier === 2 ? 85 : tier === 1 ? 42 + lv * 9 : 20 + lv * 7) * this.stats.might;
+    const fb = this.getForgeBonus('cross');
+    const count =
+      (tier === 2 ? 5 : tier === 1 ? 2 + (lv >= 2 ? 1 : 0) : lv >= 3 ? 2 : 1) +
+      this.stats.amount +
+      fb.bonusAmount;
+    const damage =
+      (tier === 2 ? 85 : tier === 1 ? 42 + lv * 9 : 20 + lv * 7) *
+      this.stats.might *
+      fb.damageMult;
     const nearest = this.grid.findNearest(this.heroX, this.heroY, 540);
     const baseAngle = nearest
       ? Math.atan2(nearest.y - this.heroY, nearest.x - this.heroX)
@@ -2145,7 +2348,7 @@ export class ArenaScene extends Phaser.Scene {
       const sprite = this.add
         .image(this.heroX, this.heroY, tier > 0 ? 'vfx_celestial_blade' : 'vfx_cross')
         .setDepth(21)
-        .setScale(this.stats.area * (tier === 2 ? 1.65 : tier === 1 ? 1.28 : 1.05))
+        .setScale(this.stats.area * fb.areaMult * (tier === 2 ? 1.65 : tier === 1 ? 1.28 : 1.05))
         .setTint(tier === 2 ? 0xfff59d : 0xffffff)
         .setBlendMode(Phaser.BlendModes.ADD);
 
@@ -2161,9 +2364,9 @@ export class ArenaScene extends Phaser.Scene {
         spinSpeed: tier === 2 ? 16 : 12,
         damage,
         pierce: 99,
-        radius: (tier === 2 ? 36 : tier === 1 ? 28 : 20) * this.stats.area,
+        radius: (tier === 2 ? 36 : tier === 1 ? 28 : 20) * this.stats.area * fb.areaMult,
         life: 2.35,
-        crit: this.rollCrit(tier > 0),
+        crit: this.rollCrit(tier > 0, fb.critBonus),
         lifeSteal: 0,
         hitIds: new Set(),
       });
@@ -2184,8 +2387,9 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
+    const fb = this.getForgeBonus('bible');
     const desiredCount =
-      (tier === 2 ? 10 : tier === 1 ? 5 + lv : 1 + lv) + this.stats.amount;
+      (tier === 2 ? 10 : tier === 1 ? 5 + lv : 1 + lv) + this.stats.amount + fb.bonusAmount;
     while (this.orbitalSprites.length < desiredCount) {
       const spr = this.add
         .image(this.heroX, this.heroY, 'vfx_bible')
@@ -2206,13 +2410,19 @@ export class ArenaScene extends Phaser.Scene {
               ? 1 - (cycle - 3.65) / 0.35
               : 0;
 
-    const angularSpeed = tier === 2 ? 5.6 : tier === 1 ? 4.2 + lv * 0.3 : 2.7 + lv * 0.25;
+    const angularSpeed =
+      (tier === 2 ? 5.6 : tier === 1 ? 4.2 + lv * 0.3 : 2.7 + lv * 0.25) /
+      Math.max(0.7, fb.cooldownMult);
     this.orbitalAngle += angularSpeed * dt;
     const baseOrbitRadius =
       (tier === 2 ? 128 : tier === 1 ? 114 + lv * 6 : 84 + lv * 7) *
       this.stats.area *
+      fb.areaMult *
       (0.4 + 0.6 * visibility);
-    const damage = (tier === 2 ? 54 : tier === 1 ? 30 + lv * 6 : 14 + lv * 5) * this.stats.might;
+    const damage =
+      (tier === 2 ? 54 : tier === 1 ? 30 + lv * 6 : 14 + lv * 5) *
+      this.stats.might *
+      fb.damageMult;
 
     for (const [enemyId, cd] of this.orbitalHitCooldowns.entries()) {
       if (cd - dt <= 0) this.orbitalHitCooldowns.delete(enemyId);
@@ -2237,22 +2447,23 @@ export class ArenaScene extends Phaser.Scene {
         .setVisible(true)
         .setPosition(ox, oy)
         .setAlpha(visibility)
-        .setScale(visibility * this.stats.area * (tier === 2 ? 1.35 : tier === 1 ? 1.2 : 1))
+        .setScale(visibility * this.stats.area * fb.areaMult * (tier === 2 ? 1.35 : tier === 1 ? 1.2 : 1))
         .setRotation(theta + Math.PI / 2);
 
       if (visibility > 0.5) {
-        this.damageBreakablesInRadius(ox, oy, 22 * this.stats.area, damage);
-        const hitList = this.grid.queryRadius(ox, oy, 22 * this.stats.area);
+        const hitRad = 22 * this.stats.area * fb.areaMult;
+        this.damageBreakablesInRadius(ox, oy, hitRad, damage);
+        const hitList = this.grid.queryRadius(ox, oy, hitRad);
         for (const enemy of hitList) {
           if (!this.orbitalHitCooldowns.has(enemy.id)) {
-            this.orbitalHitCooldowns.set(enemy.id, 0.32);
+            this.orbitalHitCooldowns.set(enemy.id, 0.32 * fb.cooldownMult);
             const pushAngle = Math.atan2(enemy.y - this.heroY, enemy.x - this.heroX);
             this.damageEnemy(
               enemy,
               damage,
               Math.cos(pushAngle) * 195,
               Math.sin(pushAngle) * 195,
-              tier === 2,
+              this.rollCrit(tier === 2, fb.critBonus),
               0
             );
           }
@@ -2264,10 +2475,15 @@ export class ArenaScene extends Phaser.Scene {
   private fireAxesOrScythes(lv: number, tier: 0 | 1 | 2): void {
     this.triggerHeroAttackAnim();
     gothicAudio.playAxe();
+    const fb = this.getForgeBonus('axe');
     const count =
-      (tier === 2 ? 8 : tier === 1 ? 3 + lv : 1 + Math.floor(lv / 2)) + this.stats.amount;
+      (tier === 2 ? 8 : tier === 1 ? 3 + lv : 1 + Math.floor(lv / 2)) +
+      this.stats.amount +
+      fb.bonusAmount;
     const damage =
-      (tier === 2 ? 96 : tier === 1 ? 50 + lv * 10 : 29 + lv * 10) * this.stats.might;
+      (tier === 2 ? 96 : tier === 1 ? 50 + lv * 10 : 29 + lv * 10) *
+      this.stats.might *
+      fb.damageMult;
 
     for (let i = 0; i < count; i++) {
       if (tier > 0) {
@@ -2276,7 +2492,7 @@ export class ArenaScene extends Phaser.Scene {
         const sprite = this.add
           .image(this.heroX, this.heroY, 'vfx_scythe')
           .setDepth(21)
-          .setScale((tier === 2 ? 1.65 : 1.25) * this.stats.area)
+          .setScale((tier === 2 ? 1.65 : 1.25) * this.stats.area * fb.areaMult)
           .setTint(tier === 2 ? 0xe8a0ff : 0xffffff)
           .setBlendMode(Phaser.BlendModes.ADD);
         this.projectiles.push({
@@ -2291,7 +2507,7 @@ export class ArenaScene extends Phaser.Scene {
           spinSpeed: tier === 2 ? 15 : 11,
           damage,
           pierce: 99,
-          radius: (tier === 2 ? 34 : 26) * this.stats.area,
+          radius: (tier === 2 ? 34 : 26) * this.stats.area * fb.areaMult,
           life: 2.35,
           crit: true,
           lifeSteal: 0,
@@ -2304,7 +2520,7 @@ export class ArenaScene extends Phaser.Scene {
         const sprite = this.add
           .image(this.heroX, this.heroY - 10, 'vfx_axe')
           .setDepth(21)
-          .setScale(1.05 * this.stats.area);
+          .setScale(1.05 * this.stats.area * fb.areaMult);
         this.projectiles.push({
           sprite,
           x: this.heroX,
@@ -2317,9 +2533,9 @@ export class ArenaScene extends Phaser.Scene {
           spinSpeed: 9.5 * this.facing,
           damage,
           pierce: 3 + lv,
-          radius: 21 * this.stats.area,
+          radius: 21 * this.stats.area * fb.areaMult,
           life: 2.1,
-          crit: this.rollCrit(Math.random() < 0.25),
+          crit: this.rollCrit(Math.random() < 0.25, fb.critBonus),
           lifeSteal: 0,
           hitIds: new Set(),
         });
@@ -2338,8 +2554,11 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
+    const fb = this.getForgeBonus('thurible');
     const radius =
-      (tier === 2 ? 195 : tier === 1 ? 122 + lv * 14 : 70 + lv * 11) * this.stats.area;
+      (tier === 2 ? 195 : tier === 1 ? 122 + lv * 14 : 70 + lv * 11) *
+      this.stats.area *
+      fb.areaMult;
     const pulse = 1 + Math.sin(time * 0.006) * 0.045;
     this.thuribleAura
       .setPosition(this.heroX, this.heroY + 4)
@@ -2361,14 +2580,16 @@ export class ArenaScene extends Phaser.Scene {
     }
 
     const tickDamage =
-      (tier === 2 ? 36 : tier === 1 ? 18 + lv * 4 : 6.5 + lv * 3) * this.stats.might;
+      (tier === 2 ? 36 : tier === 1 ? 18 + lv * 4 : 6.5 + lv * 3) *
+      this.stats.might *
+      fb.damageMult;
     this.damageBreakablesInRadius(this.heroX, this.heroY, radius, tickDamage * 0.7);
 
     const candidates = this.grid.queryRadius(this.heroX, this.heroY, radius);
     for (const enemy of candidates) {
       enemy.auraContactTimer -= dt;
       if (enemy.auraContactTimer <= 0) {
-        enemy.auraContactTimer = tier === 2 ? 0.25 : tier === 1 ? 0.32 : 0.46;
+        enemy.auraContactTimer = (tier === 2 ? 0.25 : tier === 1 ? 0.32 : 0.46) * fb.cooldownMult;
         const pushAngle = Math.atan2(enemy.y - this.heroY, enemy.x - this.heroX);
         if (tier === 2) {
           enemy.burnTimer = Math.max(enemy.burnTimer, 1.8);
@@ -2378,7 +2599,7 @@ export class ArenaScene extends Phaser.Scene {
           tickDamage,
           Math.cos(pushAngle) * 75,
           Math.sin(pushAngle) * 75,
-          tier === 2,
+          this.rollCrit(tier === 2, fb.critBonus),
           tier === 2 ? 0.55 : tier === 1 ? 0.35 : 0
         );
       }
@@ -2389,12 +2610,19 @@ export class ArenaScene extends Phaser.Scene {
     const inRange = this.grid.queryRadius(this.heroX, this.heroY, 540);
     if (inRange.length === 0) return;
 
+    const fb = this.getForgeBonus('lightning');
     const strikes =
-      (tier === 2 ? 7 : tier === 1 ? 3 + lv : 1 + Math.floor(lv / 2)) + this.stats.amount;
+      (tier === 2 ? 7 : tier === 1 ? 3 + lv : 1 + Math.floor(lv / 2)) +
+      this.stats.amount +
+      fb.bonusAmount;
     const damage =
-      (tier === 2 ? 108 : tier === 1 ? 60 + lv * 10 : 28 + lv * 9) * this.stats.might;
+      (tier === 2 ? 108 : tier === 1 ? 60 + lv * 10 : 28 + lv * 9) *
+      this.stats.might *
+      fb.damageMult;
     const blastRadius =
-      (tier === 2 ? 124 : tier === 1 ? 82 + lv * 8 : 58 + lv * 6) * this.stats.area;
+      (tier === 2 ? 124 : tier === 1 ? 82 + lv * 8 : 58 + lv * 6) *
+      this.stats.area *
+      fb.areaMult;
 
     gothicAudio.playThunder();
 
@@ -2440,7 +2668,7 @@ export class ArenaScene extends Phaser.Scene {
         this.damageBreakablesInRadius(tx, ty, blastRadius, damage);
         const victims = this.grid.queryRadius(tx, ty, blastRadius);
         for (const v of victims) {
-          this.damageEnemy(v, damage, 0, -60, this.rollCrit(tier > 0), 0);
+          this.damageEnemy(v, damage, 0, -60, this.rollCrit(tier > 0, fb.critBonus), 0);
         }
       });
     }
@@ -3221,6 +3449,11 @@ export class ArenaScene extends Phaser.Scene {
     const esc = this.getActEscalation();
     gothicSoundtrack.setBattleIntensity(esc.act, Boolean(activeBoss));
 
+    const altarPos = this.stageDef.hiddenAltarPos;
+    const dxAltar = altarPos.x - this.heroX;
+    const dyAltar = altarPos.y - this.heroY;
+    const hiddenWeaponId = this.stageDef.hiddenWeapon;
+
     this.callbacks?.onHudUpdate({
       hp: Math.ceil(this.hp),
       maxHp: this.stats.maxHp,
@@ -3247,6 +3480,15 @@ export class ArenaScene extends Phaser.Scene {
             maxHp: activeBoss.maxHp,
           }
         : undefined,
+      hiddenWeapon: {
+        weaponId: hiddenWeaponId,
+        weaponName: WEAPONS[hiddenWeaponId].name,
+        altarName: this.stageDef.hiddenAltarName,
+        alreadyUnlocked: this.metaUnlockedWeapons.includes(hiddenWeaponId),
+        claimedInRun: this.hiddenAltarClaimed,
+        distanceMeters: Math.max(0, Math.round(Math.hypot(dxAltar, dyAltar) / 28)),
+        angleDeg: Math.round((Math.atan2(dyAltar, dxAltar) * 180) / Math.PI),
+      },
     });
   }
 }

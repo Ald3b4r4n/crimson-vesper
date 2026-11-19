@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DEFAULT_UNLOCKED_WEAPONS,
   DIFFICULTIES,
   DIFFICULTY_ORDER,
   ENEMIES,
   getRelicIconUrl,
+  getWeaponDiscoveryStage,
   getWeaponIconUrl,
+  HERO_ORDER,
+  HEROES,
   STAGES,
   WEAPONS,
 } from '../../src/data/loreData';
@@ -18,12 +22,16 @@ import {
   computeEffectiveStats,
   computeIntraMatchEscalation,
   computePlayerPowerPressure,
+  computeWeaponForgeBonus,
   createInitialInventory,
   getActiveSynergyPairs,
   getAvailableEvolutions,
   getAvailableUltimates,
+  isBaseWeaponUnlocked,
+  MAX_WEAPON_FORGE_LEVEL,
   MAX_WEAPON_SLOTS,
   resolveRelicChest,
+  WEAPON_FORGE_COSTS,
 } from '../../src/game/UpgradeLogic';
 
 describe('Vespera — Difficulties, Ultimates, 27 Enemies, 40-Min Stages & 36 Icons', () => {
@@ -224,5 +232,72 @@ describe('Vespera — Difficulties, Ultimates, 27 Enemies, 40-Min Stages & 36 Ic
     const midNormalWeak = computeIntraMatchEscalation(1200, 'normal', baseInv);
     const midNormalStrong = computeIntraMatchEscalation(1200, 'normal', strongInv);
     expect(midNormalStrong.hpMult).toBeGreaterThan(midNormalWeak.hpMult);
+  });
+
+  it('registers all 8 articulated heroes (including Mordred, LinK, Antonio Cruz, and Luisa Cruz) and stage-hidden weapons', () => {
+    expect(HERO_ORDER).toEqual([
+      'alaric',
+      'seraphina',
+      'kaelen',
+      'valeria',
+      'mordred',
+      'link',
+      'antonio',
+      'luisa',
+    ]);
+    expect(HEROES.luisa.lore.toLowerCase()).toContain('antonio cruz');
+    expect(HEROES.luisa.lore.toLowerCase()).toContain('encaracolados');
+
+    expect(createInitialInventory('mordred').weapons.thurible).toBe(1);
+    expect(createInitialInventory('link').weapons.cross).toBe(1);
+    expect(createInitialInventory('antonio').weapons.whip).toBe(1);
+    expect(createInitialInventory('luisa').weapons.wand).toBe(1);
+
+    expect(DEFAULT_UNLOCKED_WEAPONS).toEqual(['whip', 'wand']);
+    const hiddenSet = new Set(STAGES.map((st) => st.hiddenWeapon));
+    expect(hiddenSet.size).toBe(7);
+    for (const wId of ALL_BASE_WEAPONS) {
+      if (!DEFAULT_UNLOCKED_WEAPONS.includes(wId)) {
+        expect(hiddenSet.has(wId)).toBe(true);
+        expect(getWeaponDiscoveryStage(wId)).toBeDefined();
+      }
+    }
+  });
+
+  it('enforces stage-hidden weapon locking on level-up and applies Out-of-Game Forge scaling', () => {
+    const lockedInv = createInitialInventory('alaric', [...DEFAULT_UNLOCKED_WEAPONS], {
+      whip: 4,
+    });
+    expect(lockedInv.weapons.whip).toBe(2);
+    expect(isBaseWeaponUnlocked(lockedInv, 'whip')).toBe(true);
+    expect(isBaseWeaponUnlocked(lockedInv, 'wand')).toBe(true);
+    expect(isBaseWeaponUnlocked(lockedInv, 'bible')).toBe(false);
+    expect(isBaseWeaponUnlocked(lockedInv, 'axe')).toBe(false);
+
+    const choices = buildUpgradeChoices(lockedInv, 6, () => 0.42);
+    const offeredWeapons = choices.filter((c) => c.kind === 'weapon').map((c) => c.weaponId);
+    for (const wId of offeredWeapons) {
+      expect(['whip', 'wand']).toContain(wId);
+    }
+
+    // Unlock bible -> now available in upgrade pool
+    lockedInv.unlockedWeapons!.push('bible');
+    expect(isBaseWeaponUnlocked(lockedInv, 'bible')).toBe(true);
+
+    // Out-of-Game Forge progression bonuses & early evolution at Lv.5
+    expect(WEAPON_FORGE_COSTS).toHaveLength(MAX_WEAPON_FORGE_LEVEL);
+    const f0 = computeWeaponForgeBonus(0);
+    const f5 = computeWeaponForgeBonus(5);
+    expect(f5.damageMult).toBeGreaterThan(f0.damageMult);
+    expect(f5.areaMult).toBeGreaterThan(f0.areaMult);
+    expect(f5.cooldownMult).toBeLessThan(f0.cooldownMult);
+    expect(f5.bonusAmount).toBe(2);
+    expect(f5.startingLevel).toBe(2);
+    expect(f5.earlyEvoDiscount).toBe(1);
+
+    const earlyEvoInv = createInitialInventory('alaric', ['whip'], { whip: 5 });
+    earlyEvoInv.weapons.whip = 4; // Normal max is 5, Forge Lv.5 allows evolution at 4!
+    earlyEvoInv.relics.black_heart = 1;
+    expect(getAvailableEvolutions(earlyEvoInv)).toEqual(['blood_rose']);
   });
 });

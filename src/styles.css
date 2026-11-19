@@ -1103,7 +1103,7 @@ body {
 
 .event-banner {
   position: absolute;
-  top: 78px;
+  top: 98px;
   left: 50%;
   transform: translateX(-50%) translateY(-10px);
   width: min(540px, 88%);
@@ -1374,7 +1374,7 @@ body {
   bottom: calc(16px + var(--safe-bottom));
 }
 #game-root.forced-landscape .event-banner {
-  top: 56px;
+  top: 72px;
   padding: 4px 12px;
 }
 
@@ -1456,7 +1456,7 @@ body {
     bottom: calc(16px + var(--safe-bottom));
   }
   .event-banner {
-    top: 56px;
+    top: 72px;
     padding: 4px 12px;
   }
 }
@@ -1484,5 +1484,135 @@ body {
   .pip-dot {
     width: 3px;
     height: 3px;
+  }
+}
+
+/* =========================================================
+   LOCKED WEAPONS, OUT-OF-GAME FORGE & HUD WEAPON COMPASS
+   ========================================================= */
+.power-icon-tile.locked-tile .power-icon-img {
+  filter: grayscale(0.88) brightness(0.45);
+}
+
+.power-icon-tile.locked-tile {
+  border-color: rgba(160, 140, 175, 0.35);
+}
+
+.lock-corner,
+.forge-lv-corner {
+  position: absolute;
+  bottom: 1px;
+  right: 2px;
+  font-size: 0.58rem;
+  font-weight: 800;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: rgba(8, 4, 12, 0.85);
+  color: #ffe79e;
+  text-shadow: 0 1px 3px #000;
+}
+
+.weapon-forge-panel {
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: linear-gradient(180deg, rgba(38, 16, 30, 0.88) 0%, rgba(14, 8, 22, 0.96) 100%);
+  border: 1px solid rgba(255, 209, 102, 0.45);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.forge-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.forge-title {
+  font-family: var(--font-display);
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--gold-bright);
+}
+
+.forge-souls-tag {
+  font-size: 0.78rem;
+  color: #7ce8ff;
+}
+
+.forge-souls-tag strong {
+  color: var(--gold-bright);
+}
+
+.forge-status-line {
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.forge-bonus-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.forge-bonus-grid strong {
+  color: var(--text-ivory);
+}
+
+.forge-upgrade-btn {
+  align-self: flex-start;
+  padding: 8px 16px;
+  font-size: 0.78rem;
+}
+
+.forge-upgrade-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  filter: grayscale(0.5);
+  transform: none;
+}
+
+.hud-weapon-compass {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 3px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(14, 8, 22, 0.86);
+  border: 1px solid rgba(255, 209, 102, 0.55);
+  font-size: 0.64rem;
+  color: #ffe79e;
+  text-shadow: 0 1px 3px #000;
+}
+
+.hud-weapon-compass.claimed {
+  border-color: rgba(123, 224, 173, 0.7);
+  color: #7be0ad;
+}
+
+.hud-weapon-compass .compass-arrow {
+  display: inline-block;
+  font-size: 0.76rem;
+  color: #ffd166;
+  transition: transform 90ms linear;
+}
+
+#game-root.forced-landscape .hud-weapon-compass {
+  font-size: 0.56rem;
+  padding: 1px 6px;
+  margin-top: 2px;
+}
+
+@media (max-height: 520px) {
+  .hud-weapon-compass {
+    font-size: 0.56rem;
+    padding: 1px 6px;
+    margin-top: 2px;
   }
 }

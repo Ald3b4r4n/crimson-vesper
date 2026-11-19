@@ -17,6 +17,33 @@ import {
 
 export const MAX_WEAPON_SLOTS = 6;
 export const MAX_RELIC_SLOTS = 6;
+export const MAX_WEAPON_FORGE_LEVEL = 5;
+export const WEAPON_FORGE_COSTS = [60, 120, 200, 320, 500] as const;
+
+export interface WeaponForgeBonus {
+  forgeLevel: number;
+  damageMult: number;
+  areaMult: number;
+  cooldownMult: number;
+  bonusAmount: number;
+  critBonus: number;
+  startingLevel: number;
+  earlyEvoDiscount: number;
+}
+
+export function computeWeaponForgeBonus(forgeLevel: number): WeaponForgeBonus {
+  const lv = Math.max(0, Math.min(MAX_WEAPON_FORGE_LEVEL, Math.floor(forgeLevel || 0)));
+  return {
+    forgeLevel: lv,
+    damageMult: 1 + lv * 0.18,
+    areaMult: 1 + lv * 0.05,
+    cooldownMult: Math.pow(0.955, lv),
+    bonusAmount: lv >= 5 ? 2 : lv >= 3 ? 1 : 0,
+    critBonus: lv * 0.04,
+    startingLevel: lv >= 4 ? 2 : 1,
+    earlyEvoDiscount: lv >= 5 ? 1 : 0,
+  };
+}
 
 export const ALL_BASE_WEAPONS: BaseWeaponId[] = [
   'whip',
@@ -64,6 +91,8 @@ export interface InventoryState {
   souls: number;
   ascensionMight?: number;
   ascensionHp?: number;
+  unlockedWeapons?: BaseWeaponId[];
+  weaponForge?: Partial<Record<BaseWeaponId, number>>;
 }
 
 export type UpgradeKind = 'weapon' | 'relic' | 'evolution' | 'ultimate' | 'blessing';
@@ -93,21 +122,37 @@ export function xpRequiredForLevel(level: number): number {
   return Math.round(973 + (level - 70) * 24);
 }
 
-export function createInitialInventory(heroId: HeroId): InventoryState {
+export function createInitialInventory(
+  heroId: HeroId,
+  unlockedWeapons?: BaseWeaponId[],
+  weaponForge?: Partial<Record<BaseWeaponId, number>>
+): InventoryState {
   const hero = HEROES[heroId];
+  const startForge = weaponForge?.[hero.startingWeapon] ?? 0;
+  const startBonus = computeWeaponForgeBonus(startForge);
   return {
     heroId,
     level: 1,
     xp: 0,
     xpToNext: xpRequiredForLevel(1),
     weapons: {
-      [hero.startingWeapon]: 1,
+      [hero.startingWeapon]: weaponForge ? startBonus.startingLevel : 1,
     },
     relics: {},
     souls: 0,
     ascensionMight: 0,
     ascensionHp: 0,
+    unlockedWeapons: unlockedWeapons
+      ? Array.from(new Set([...unlockedWeapons, hero.startingWeapon]))
+      : undefined,
+    weaponForge: weaponForge ? { ...weaponForge } : undefined,
   };
+}
+
+export function isBaseWeaponUnlocked(inv: InventoryState, wId: BaseWeaponId): boolean {
+  if ((inv.weapons[wId] ?? 0) > 0) return true;
+  if (!inv.unlockedWeapons) return true;
+  return inv.unlockedWeapons.includes(wId);
 }
 
 export function computeEffectiveStats(inv: InventoryState): HeroStats {
@@ -147,10 +192,11 @@ export function getAvailableEvolutions(inv: InventoryState): EvolvedWeaponId[] {
   for (const baseId of ALL_BASE_WEAPONS) {
     const lv = inv.weapons[baseId] ?? 0;
     const def = WEAPONS[baseId];
+    const forgeBonus = computeWeaponForgeBonus(inv.weaponForge?.[baseId] ?? 0);
     const evoDef = def.evolvesInto ? WEAPONS[def.evolvesInto] : undefined;
     const hasUltimate = Boolean(evoDef?.ultimateInto && inv.weapons[evoDef.ultimateInto]);
     if (
-      lv >= def.maxLevel &&
+      lv >= def.maxLevel - forgeBonus.earlyEvoDiscount &&
       def.catalystRelic &&
       (inv.relics[def.catalystRelic] ?? 0) >= 1 &&
       def.evolvesInto &&
@@ -299,10 +345,13 @@ export function buildUpgradeChoices(
 
     const current = inv.weapons[wId] ?? 0;
     if (current >= def.maxLevel) continue;
+    if (current === 0 && !isBaseWeaponUnlocked(inv, wId)) continue;
     if (current === 0 && ownedWeaponCount >= MAX_WEAPON_SLOTS) continue;
     if (current === 0 && lockToActivePairs && !activePairs.has(wId)) continue;
 
-    const next = current + 1;
+    const forgeBonus = computeWeaponForgeBonus(inv.weaponForge?.[wId] ?? 0);
+    const next =
+      current === 0 ? Math.min(def.maxLevel, forgeBonus.startingLevel) : current + 1;
     const catalyst = def.catalystRelic ? RELICS[def.catalystRelic] : undefined;
     const hasCatalyst = def.catalystRelic ? (inv.relics[def.catalystRelic] ?? 0) > 0 : false;
 
@@ -312,7 +361,12 @@ export function buildUpgradeChoices(
       weaponId: wId,
       iconUrl: getWeaponIconUrl(wId),
       title: def.name,
-      subtitle: current === 0 ? 'Nova Arma Sagrada' : `Grau ${current} → ${next}`,
+      subtitle:
+        current === 0
+          ? next > 1
+            ? `Nova Arma (Forjada Nv.${next})`
+            : 'Nova Arma Sagrada'
+          : `Grau ${current} → ${next}`,
       description: def.descriptions[next - 1] ?? def.tagline,
       currentLevel: current,
       nextLevel: next,
@@ -433,7 +487,15 @@ export function applyUpgradeChoice(
   let evolvedWeapon: WeaponId | undefined;
 
   if (choice.kind === 'weapon' && choice.weaponId) {
-    inv.weapons[choice.weaponId] = choice.nextLevel;
+    const wId = choice.weaponId;
+    const prevLv = inv.weapons[wId] ?? 0;
+    const wDef = WEAPONS[wId];
+    if (prevLv === 0 && !wDef.isEvolved && !wDef.isUltimate) {
+      const forgeBonus = computeWeaponForgeBonus(inv.weaponForge?.[wId as BaseWeaponId] ?? 0);
+      inv.weapons[wId] = Math.min(wDef.maxLevel, Math.max(choice.nextLevel, forgeBonus.startingLevel));
+    } else {
+      inv.weapons[wId] = choice.nextLevel;
+    }
   } else if (choice.kind === 'relic' && choice.relicId) {
     inv.relics[choice.relicId] = choice.nextLevel;
     if (choice.relicId === 'black_heart') {

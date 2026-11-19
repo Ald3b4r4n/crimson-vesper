@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { DifficultyId, HeroId, StageId } from './data/loreData';
+import { BaseWeaponId, DifficultyId, HeroId, StageId } from './data/loreData';
 import { ArenaCallbacks, ArenaScene } from './scenes/ArenaScene';
 import './styles.css';
 import { UIManager } from './ui/UIManager';
@@ -45,11 +45,15 @@ new UIManager(uiLayer, viewport, {
     heroId: HeroId,
     stageId: StageId,
     difficultyId: DifficultyId,
-    callbacks: ArenaCallbacks
+    callbacks: ArenaCallbacks,
+    metaProgression?: {
+      unlockedWeapons: BaseWeaponId[];
+      weaponForge: Partial<Record<BaseWeaponId, number>>;
+    }
   ) => {
     const sz = viewport.getWorldSize();
     game.scale.resize(sz.width, sz.height);
-    arenaScene.configureRun(heroId, stageId, difficultyId, callbacks);
+    arenaScene.configureRun(heroId, stageId, difficultyId, callbacks, metaProgression);
     if (game.scene.isActive('ArenaScene') || game.scene.isPaused('ArenaScene')) {
       game.scene.stop('ArenaScene');
     }

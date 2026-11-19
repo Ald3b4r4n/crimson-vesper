@@ -1,4 +1,23 @@
-export type HeroId = 'alaric' | 'seraphina' | 'kaelen' | 'valeria';
+export type HeroId =
+  | 'alaric'
+  | 'seraphina'
+  | 'kaelen'
+  | 'valeria'
+  | 'mordred'
+  | 'link'
+  | 'antonio'
+  | 'luisa';
+
+export const HERO_ORDER: HeroId[] = [
+  'alaric',
+  'seraphina',
+  'kaelen',
+  'valeria',
+  'mordred',
+  'link',
+  'antonio',
+  'luisa',
+];
 
 export type DifficultyId = 'normal' | 'hard' | 'epic' | 'holi_shit';
 
@@ -157,6 +176,8 @@ export type UltimateWeaponId =
 
 export type WeaponId = BaseWeaponId | EvolvedWeaponId | UltimateWeaponId;
 
+export const DEFAULT_UNLOCKED_WEAPONS: BaseWeaponId[] = ['whip', 'wand'];
+
 export type RelicId =
   | 'black_heart'
   | 'empty_tome'
@@ -294,6 +315,9 @@ export interface StageDefinition {
     emberTint: number;
   };
   propStyle: 'forest' | 'castle' | 'dungeon' | 'volcano' | 'metropolis' | 'temple' | 'inferno';
+  hiddenWeapon: BaseWeaponId;
+  hiddenAltarName: string;
+  hiddenAltarPos: { x: number; y: number };
   enemyPool: EnemyKind[];
   subBossPool: EnemyKind[];
   midBoss: EnemyKind;
@@ -416,6 +440,110 @@ export const HEROES: Record<HeroId, HeroDefinition> = {
       critChance: 0.22,
     },
   },
+  mordred: {
+    id: 'mordred',
+    name: 'Mordred Vane',
+    epithet: 'O Necromante de Cinzas',
+    portraitUrl: './art/hero-mordred.jpg',
+    startingWeapon: 'thurible',
+    cloakColor: 0x1e4d3a,
+    accentColor: 0x52ff9a,
+    trimColor: '#52ff9a',
+    perkSummary: '+24% Área Espectral · +0.55 Regen · +20% Ímã',
+    lore: 'Grão-ocultista que profanou os ossuários de Valen para comandar as próprias cinzas dos mortos em turíbulos de fogo verde.',
+    quote: '“Os mortos não descansam enquanto o Sol continuar sangrando.”',
+    baseStats: {
+      maxHp: 118,
+      moveSpeed: 174,
+      might: 1.08,
+      area: 1.24,
+      cooldown: 0.94,
+      magnet: 118,
+      armor: 1,
+      regen: 0.55,
+      amount: 0,
+      projSpeed: 1.04,
+      critChance: 0.14,
+    },
+  },
+  link: {
+    id: 'link',
+    name: 'LinK',
+    epithet: 'O Guerreiro Lendário',
+    portraitUrl: './art/hero-link.jpg',
+    startingWeapon: 'cross',
+    cloakColor: 0x1b6e35,
+    accentColor: 0xffe066,
+    trimColor: '#6be88b',
+    perkSummary: '+1 Projétil · +192 Vel · +22% Crítico · +2 Armadura',
+    lore: 'Espadachim lendário de túnica esmeralda convocado através das eras com sua lâmina sagrada e bumerangues rúnicos capazes de partir as trevas.',
+    quote: '“Coragem não é ausência de sombra — é erguer a lâmina mesmo sob o Eclipse.”',
+    baseStats: {
+      maxHp: 135,
+      moveSpeed: 192,
+      might: 1.16,
+      area: 1.12,
+      cooldown: 0.92,
+      magnet: 112,
+      armor: 2,
+      regen: 0.45,
+      amount: 1,
+      projSpeed: 1.18,
+      critChance: 0.22,
+    },
+  },
+  antonio: {
+    id: 'antonio',
+    name: 'Antonio Cruz',
+    epithet: 'O Caçador de Vampiros',
+    portraitUrl: './art/hero-antonio.jpg',
+    startingWeapon: 'whip',
+    cloakColor: 0x1b1a24,
+    accentColor: 0xff2a55,
+    trimColor: '#ff4d6d',
+    perkSummary: '+140 PV · +20% Dano · +24% Crítico · +2 Armadura',
+    lore: 'Patriarca moderno da Linhagem Cruz. Trajado em alfaiataria escura e açoite consagrado, caça lordes vampiros sem jamais perder a compostura.',
+    quote: '“Ajeita a gravata, firma a corrente — hoje nenhum imortal passa da meia-noite.”',
+    baseStats: {
+      maxHp: 140,
+      moveSpeed: 182,
+      might: 1.2,
+      area: 1.15,
+      cooldown: 0.93,
+      magnet: 110,
+      armor: 2,
+      regen: 0.4,
+      amount: 0,
+      projSpeed: 1.1,
+      critChance: 0.24,
+    },
+  },
+  luisa: {
+    id: 'luisa',
+    name: 'Luisa Cruz',
+    epithet: 'A Maga Suprema Carmesim',
+    portraitUrl: './art/hero-luisa.jpg',
+    startingWeapon: 'wand',
+    cloakColor: 0x7b143b,
+    accentColor: 0xf472b6,
+    trimColor: '#ff85c0',
+    perkSummary: '+1 Projétil · -16% Recarga · +35% Ímã · +16% Área',
+    lore: 'Filha de Antonio Cruz e prodígio arcana da família. Com seus cabelos encaracolados iluminados por brasas astrais, canaliza constelações inteiras em torrentes escarlates ao lado do pai.',
+    quote: '“Meu pai caça os vampiros nas sombras; eu incendeio o céu inteiro para que nenhum escape.”',
+    baseStats: {
+      maxHp: 108,
+      moveSpeed: 186,
+      might: 1.14,
+      area: 1.16,
+      cooldown: 0.84,
+      magnet: 132,
+      armor: 0,
+      regen: 0.35,
+      amount: 1,
+      projSpeed: 1.24,
+      critChance: 0.16,
+    },
+  },
 };
 
 export const STAGES: StageDefinition[] = [
@@ -442,6 +570,9 @@ export const STAGES: StageDefinition[] = [
       emberTint: 0x7effb2,
     },
     propStyle: 'forest',
+    hiddenWeapon: 'bible',
+    hiddenAltarName: 'Altar Silvestre das Vésperas',
+    hiddenAltarPos: { x: 540, y: -420 },
     enemyPool: ['bat', 'flagellant', 'dryad', 'werewolf', 'bone_crawler', 'necromancer', 'mist_steed'],
     subBossPool: ['werewolf', 'dryad', 'necromancer', 'mist_steed'],
     midBoss: 'boss_fenrir',
@@ -473,6 +604,9 @@ export const STAGES: StageDefinition[] = [
       emberTint: 0xc792ff,
     },
     propStyle: 'castle',
+    hiddenWeapon: 'daggers',
+    hiddenAltarName: 'Relicário de Prata de Valen',
+    hiddenAltarPos: { x: -580, y: -440 },
     enemyPool: ['bat', 'banshee', 'gargoyle', 'necromancer', 'hollow_knight', 'fallen_seraph'],
     subBossPool: ['banshee', 'gargoyle', 'necromancer', 'hollow_knight'],
     midBoss: 'boss_carmilla',
@@ -504,6 +638,9 @@ export const STAGES: StageDefinition[] = [
       emberTint: 0x62ff9c,
     },
     propStyle: 'dungeon',
+    hiddenWeapon: 'axe',
+    hiddenAltarName: 'Cepo Sagrado da Inquisição',
+    hiddenAltarPos: { x: 560, y: 460 },
     enemyPool: ['skeleton', 'bone_crawler', 'jailer', 'necromancer', 'inquisitor', 'plague_doctor'],
     subBossPool: ['jailer', 'bone_crawler', 'inquisitor', 'plague_doctor'],
     midBoss: 'boss_morghul',
@@ -535,6 +672,9 @@ export const STAGES: StageDefinition[] = [
       emberTint: 0xff7b29,
     },
     propStyle: 'volcano',
+    hiddenWeapon: 'flask',
+    hiddenAltarName: 'Crisol Alquímico da Cratera',
+    hiddenAltarPos: { x: -600, y: 430 },
     enemyPool: ['magma_imp', 'ash_wraith', 'lava_golem', 'abyssal_worm', 'skeleton', 'mist_steed'],
     subBossPool: ['lava_golem', 'abyssal_worm', 'ash_wraith', 'magma_imp'],
     midBoss: 'boss_ignis',
@@ -566,6 +706,9 @@ export const STAGES: StageDefinition[] = [
       emberTint: 0xffad66,
     },
     propStyle: 'metropolis',
+    hiddenWeapon: 'cross',
+    hiddenAltarName: 'Relicário de Alabastro de Solaris',
+    hiddenAltarPos: { x: 610, y: -470 },
     enemyPool: ['flagellant', 'plague_doctor', 'inquisitor', 'gargoyle', 'ash_wraith', 'hollow_knight', 'werewolf'],
     subBossPool: ['hollow_knight', 'inquisitor', 'plague_doctor', 'werewolf'],
     midBoss: 'boss_vane',
@@ -597,6 +740,9 @@ export const STAGES: StageDefinition[] = [
       emberTint: 0xff5c8a,
     },
     propStyle: 'temple',
+    hiddenWeapon: 'lightning',
+    hiddenAltarName: 'Púlpito do Fulgor Solar',
+    hiddenAltarPos: { x: -570, y: -510 },
     enemyPool: ['fallen_seraph', 'inquisitor', 'gargoyle', 'hollow_knight', 'necromancer', 'banshee', 'jailer'],
     subBossPool: ['fallen_seraph', 'inquisitor', 'gargoyle', 'hollow_knight'],
     midBoss: 'boss_malakor',
@@ -628,6 +774,9 @@ export const STAGES: StageDefinition[] = [
       emberTint: 0xff2a55,
     },
     propStyle: 'inferno',
+    hiddenWeapon: 'thurible',
+    hiddenAltarName: 'Incensário do Nono Círculo',
+    hiddenAltarPos: { x: 630, y: 490 },
     enemyPool: ['hell_fiend', 'abyssal_worm', 'ash_wraith', 'lava_golem', 'fallen_seraph', 'hollow_knight', 'werewolf'],
     subBossPool: ['hell_fiend', 'abyssal_worm', 'ash_wraith', 'lava_golem'],
     midBoss: 'boss_malakor',
@@ -637,6 +786,10 @@ export const STAGES: StageDefinition[] = [
     finalBoss: 'boss_reaper',
   },
 ];
+
+export function getWeaponDiscoveryStage(weaponId: BaseWeaponId): StageDefinition | undefined {
+  return STAGES.find((st) => st.hiddenWeapon === weaponId);
+}
 
 export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
   whip: {

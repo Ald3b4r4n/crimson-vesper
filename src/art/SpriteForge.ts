@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { EnemyKind, HeroId, StageDefinition } from '../data/loreData';
+import { EnemyKind, HERO_ORDER, StageDefinition } from '../data/loreData';
 
 function makeCanvas(width: number, height: number): {
   canvas: HTMLCanvasElement;
@@ -70,10 +70,6 @@ const STATIC_ENV_ASSETS = [
   'ruin_crumbled_wall',
   'ruin_broken_arch',
   'ruin_weathered_statue',
-  // Painted Gothic Forest Trees
-  'tree_ancient_oak',
-  'tree_weeping_willow',
-  'tree_pine_shadow',
   // Vegetation
   'veg_bramble_bush',
   'veg_twisted_shrub',
@@ -97,8 +93,7 @@ export interface StageEnvCatalog {
 }
 
 export function preloadAllSpriteAssets(scene: Phaser.Scene): void {
-  const heroIds: HeroId[] = ['alaric', 'seraphina', 'kaelen', 'valeria'];
-  for (const hId of heroIds) {
+  for (const hId of HERO_ORDER) {
     const key = `hero_${hId}`;
     if (!scene.textures.exists(key)) {
       scene.load.spritesheet(key, `./art/sprites/${key}.webp`, {
@@ -155,9 +150,9 @@ export function forgeStageTextures(scene: Phaser.Scene, stage: StageDefinition):
         'prop_iron_brazier',
       ],
       vegKeys: [
+        'veg_fern_cluster',
         'veg_bramble_bush',
         'veg_twisted_shrub',
-        'veg_fern_cluster',
         'veg_glowing_mushrooms',
       ],
       breakableKeys: ['break_candelabra', 'break_wooden_barrel', 'break_clay_urn'],
@@ -370,9 +365,8 @@ export function forgeStageTextures(scene: Phaser.Scene, stage: StageDefinition):
 }
 
 export function forgeAllTexturesAndAnims(scene: Phaser.Scene): void {
-  // 8-frame Articulated Walk + Idle + 4-frame Attack Swing for all 4 Heroes!
-  const heroIds: HeroId[] = ['alaric', 'seraphina', 'kaelen', 'valeria'];
-  for (const hId of heroIds) {
+  // 8-frame Articulated Walk + Idle + 4-frame Attack Swing for all Heroes!
+  for (const hId of HERO_ORDER) {
     const key = `hero_${hId}`;
     if (!scene.textures.exists(key)) continue;
 
@@ -414,11 +408,11 @@ export function forgeAllTexturesAndAnims(scene: Phaser.Scene): void {
         frames: scene.anims.generateFrameNumbers(key, { start: 0, end: 7 }),
         frameRate:
           kind === 'bat' ||
-          kind === 'mist_steed' ||
-          kind === 'magma_imp' ||
-          kind === 'gargoyle' ||
-          kind === 'ash_wraith' ||
-          kind === 'bone_crawler'
+            kind === 'mist_steed' ||
+            kind === 'magma_imp' ||
+            kind === 'gargoyle' ||
+            kind === 'ash_wraith' ||
+            kind === 'bone_crawler'
             ? 14
             : 10,
         repeat: -1,
@@ -426,67 +420,165 @@ export function forgeAllTexturesAndAnims(scene: Phaser.Scene): void {
     }
   }
 
-  // Lush Painterly Gothic Flora Textures (Trees loaded from painted .webp assets above!)
-  registerSingle(scene, 'veg_fern_cluster', 78, 64, (ctx, w, h) => {
-    const cx = w * 0.5;
-    const cy = h * 0.84;
-    for (let i = -4; i <= 4; i++) {
-      const ang = i * 0.28 - Math.PI / 2;
-      const len = 26 + (4 - Math.abs(i)) * 3.5;
-      const tipX = cx + Math.cos(ang) * len;
-      const tipY = cy + Math.sin(ang) * len;
-      ctx.strokeStyle = i % 2 === 0 ? '#1d4c27' : '#2a6635';
-      ctx.lineWidth = 2.6;
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(cx, cy);
-      ctx.quadraticCurveTo((cx + tipX) * 0.5 + i * 2, cy - 16, tipX, tipY);
-      ctx.stroke();
+  // Lush Gothic Forest Trees & Flora Textures
+  registerSingle(scene, 'tree_ancient_oak', 128, 148, (ctx, w, h) => {
+    // Exposed twisted roots & gnarled trunk
+    ctx.fillStyle = '#2d2018';
+    ctx.strokeStyle = '#140d09';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(w * 0.32, h - 8);
+    ctx.quadraticCurveTo(w * 0.43, h - 32, w * 0.42, h * 0.44);
+    ctx.lineTo(w * 0.58, h * 0.44);
+    ctx.quadraticCurveTo(w * 0.57, h - 32, w * 0.68, h - 8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
 
-      // Feather leaflets along fern frond
-      for (let f = 0.25; f < 0.95; f += 0.18) {
-        const lx = cx + (tipX - cx) * f;
-        const ly = cy + (tipY - cy) * f;
-        ctx.fillStyle = f > 0.6 ? '#397d43' : '#23592d';
-        ctx.beginPath();
-        ctx.ellipse(lx, ly, 4.5 * (1 - f * 0.5), 2.2, ang + 0.5, 0, Math.PI * 2);
-        ctx.fill();
-      }
+    // Bark ridges
+    ctx.strokeStyle = 'rgba(92, 68, 48, 0.55)';
+    ctx.lineWidth = 1.5;
+    for (const bx of [w * 0.46, w * 0.5, w * 0.54]) {
+      ctx.beginPath();
+      ctx.moveTo(bx, h - 14);
+      ctx.lineTo(bx + (bx > w * 0.5 ? 2 : -2), h * 0.48);
+      ctx.stroke();
+    }
+
+    // 3-layer dense canopy clusters
+    const clusters = [
+      { cx: w * 0.33, cy: h * 0.45, r: 30, col: '#18301c' },
+      { cx: w * 0.67, cy: h * 0.45, r: 30, col: '#18301c' },
+      { cx: w * 0.5, cy: h * 0.36, r: 36, col: '#203f25' },
+      { cx: w * 0.36, cy: h * 0.33, r: 24, col: '#294f2d' },
+      { cx: w * 0.64, cy: h * 0.33, r: 24, col: '#294f2d' },
+      { cx: w * 0.5, cy: h * 0.24, r: 29, col: '#356338' },
+    ];
+    for (const cl of clusters) {
+      const g = ctx.createRadialGradient(cl.cx - 4, cl.cy - 5, cl.r * 0.15, cl.cx, cl.cy, cl.r);
+      g.addColorStop(0, cl.col);
+      g.addColorStop(1, '#0d1b10');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(cl.cx, cl.cy, cl.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Ethereal glowing forest spores in foliage
+    ctx.fillStyle = 'rgba(130, 255, 185, 0.55)';
+    for (const [sx, sy] of [
+      [w * 0.38, h * 0.28],
+      [w * 0.6, h * 0.38],
+      [w * 0.48, h * 0.19],
+    ]) {
+      ctx.beginPath();
+      ctx.arc(sx, sy, 2.2, 0, Math.PI * 2);
+      ctx.fill();
     }
   });
 
-  registerSingle(scene, 'veg_glowing_mushrooms', 64, 54, (ctx, w, h) => {
-    // Moss bed base
-    const mgBase = ctx.createRadialGradient(w * 0.5, h * 0.78, 2, w * 0.5, h * 0.78, 24);
-    mgBase.addColorStop(0, '#1e3e26');
-    mgBase.addColorStop(1, 'rgba(12, 24, 16, 0)');
-    ctx.fillStyle = mgBase;
+  registerSingle(scene, 'tree_weeping_willow', 120, 144, (ctx, w, h) => {
+    ctx.fillStyle = '#292226';
+    ctx.strokeStyle = '#120e12';
+    ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.ellipse(w * 0.5, h * 0.78, 24, 10, 0, 0, Math.PI * 2);
+    ctx.moveTo(w * 0.37, h - 8);
+    ctx.quadraticCurveTo(w * 0.45, h * 0.68, w * 0.45, h * 0.38);
+    ctx.lineTo(w * 0.56, h * 0.38);
+    ctx.quadraticCurveTo(w * 0.55, h * 0.68, w * 0.63, h - 8);
+    ctx.closePath();
     ctx.fill();
+    ctx.stroke();
 
-    const caps = [
-      { x: w * 0.36, y: h * 0.64, rx: 9, ry: 5.5, stemH: 13 },
-      { x: w * 0.54, y: h * 0.54, rx: 11, ry: 7, stemH: 17 },
-      { x: w * 0.67, y: h * 0.68, rx: 7.5, ry: 5, stemH: 11 },
-    ];
-    for (const c of caps) {
-      ctx.fillStyle = '#8b8378';
-      ctx.strokeStyle = '#181412';
-      ctx.lineWidth = 1;
+    // Hanging willow curtain strands
+    for (let i = -5; i <= 5; i++) {
+      const sx = w * 0.5 + i * 7.5;
+      const topY = h * 0.24 + Math.abs(i) * 2.6;
+      const len = h * 0.58 - Math.abs(i) * 3.5;
+      ctx.strokeStyle = i % 2 === 0 ? 'rgba(54, 96, 76, 0.72)' : 'rgba(34, 68, 56, 0.78)';
+      ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.roundRect(c.x - 2, c.y, 4, c.stemH, 2);
+      ctx.moveTo(sx, topY);
+      ctx.quadraticCurveTo(sx + i * 1.4, topY + len * 0.55, sx + i * 0.7, topY + len);
+      ctx.stroke();
+    }
+
+    // Crown Dome
+    const cg = ctx.createRadialGradient(w * 0.5, h * 0.26, 6, w * 0.5, h * 0.28, 42);
+    cg.addColorStop(0, '#3a6e59');
+    cg.addColorStop(0.65, '#1e4234');
+    cg.addColorStop(1, '#0e211a');
+    ctx.fillStyle = cg;
+    ctx.beginPath();
+    ctx.ellipse(w * 0.5, h * 0.28, 42, 27, 0, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  registerSingle(scene, 'tree_pine_shadow', 104, 148, (ctx, w, h) => {
+    ctx.fillStyle = '#241812';
+    ctx.fillRect(w * 0.44, h - 34, w * 0.12, 26);
+
+    const tiers = [
+      { yTop: h * 0.36, yBot: h * 0.8, halfW: 40, col: '#132819' },
+      { yTop: h * 0.2, yBot: h * 0.62, halfW: 32, col: '#1b3a22' },
+      { yTop: h * 0.06, yBot: h * 0.42, halfW: 23, col: '#264d2e' },
+    ];
+    for (const tier of tiers) {
+      ctx.fillStyle = tier.col;
+      ctx.strokeStyle = '#0a160d';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(w * 0.5, tier.yTop);
+      ctx.lineTo(w * 0.5 + tier.halfW, tier.yBot);
+      ctx.quadraticCurveTo(w * 0.5, tier.yBot - 6, w * 0.5 - tier.halfW, tier.yBot);
+      ctx.closePath();
       ctx.fill();
       ctx.stroke();
+    }
+  });
 
-      const mg = ctx.createRadialGradient(c.x, c.y - 2, 1, c.x, c.y, c.rx + 2);
-      mg.addColorStop(0, '#96f2d7');
-      mg.addColorStop(0.55, '#2b9374');
-      mg.addColorStop(1, '#123e35');
+  registerSingle(scene, 'veg_fern_cluster', 76, 64, (ctx, w, h) => {
+    const cx = w * 0.5;
+    const cy = h * 0.8;
+    for (let i = -3; i <= 3; i++) {
+      const ang = i * 0.34 - Math.PI / 2;
+      const tipX = cx + Math.cos(ang) * 30;
+      const tipY = cy + Math.sin(ang) * 32;
+      ctx.strokeStyle = i % 2 === 0 ? '#2f6e3a' : '#22522b';
+      ctx.lineWidth = 5;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.quadraticCurveTo((cx + tipX) * 0.5 + i * 2, cy - 18, tipX, tipY);
+      ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(130, 255, 195, 0.65)';
+    for (const [sx, sy] of [
+      [cx - 8, cy - 22],
+      [cx + 10, cy - 19],
+      [cx, cy - 28],
+    ]) {
+      ctx.beginPath();
+      ctx.arc(sx, sy, 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+
+  registerSingle(scene, 'veg_glowing_mushrooms', 68, 58, (ctx, w, h) => {
+    const caps = [
+      { x: w * 0.34, y: h * 0.64, rx: 11, ry: 7, stemH: 15 },
+      { x: w * 0.56, y: h * 0.52, rx: 14, ry: 9, stemH: 20 },
+      { x: w * 0.68, y: h * 0.7, rx: 9, ry: 6, stemH: 12 },
+    ];
+    for (const c of caps) {
+      ctx.fillStyle = '#c8c2b4';
+      ctx.fillRect(c.x - 2.5, c.y, 5, c.stemH);
+      const mg = ctx.createRadialGradient(c.x, c.y - 2, 2, c.x, c.y, c.rx + 4);
+      mg.addColorStop(0, '#a8ffea');
+      mg.addColorStop(0.55, '#34d399');
+      mg.addColorStop(1, 'rgba(16, 95, 72, 0)');
       ctx.fillStyle = mg;
       ctx.beginPath();
       ctx.ellipse(c.x, c.y, c.rx, c.ry, 0, Math.PI, Math.PI * 2);
-      ctx.quadraticCurveTo(c.x, c.y + 3, c.x - c.rx, c.y);
       ctx.fill();
     }
   });
@@ -758,8 +850,8 @@ export function forgeAllTexturesAndAnims(scene: Phaser.Scene): void {
     ctx.fillRect(0, 0, w, h);
   });
 
-  // Live Physics Flame & Ember Textures (wispy sinuous flame tongue!)
-  registerSingle(scene, 'vfx_flame_tongue', 26, 48, (ctx, w, h) => {
+  // Live Physics Flame & Ember Textures!
+  registerSingle(scene, 'vfx_flame_tongue', 36, 64, (ctx, w, h) => {
     const grad = ctx.createLinearGradient(0, h, 0, 2);
     grad.addColorStop(0, '#ffffff');
     grad.addColorStop(0.32, '#ffd166');
@@ -767,9 +859,9 @@ export function forgeAllTexturesAndAnims(scene: Phaser.Scene): void {
     grad.addColorStop(1, 'rgba(255, 45, 15, 0)');
     ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.moveTo(w * 0.55, 2);
-    ctx.bezierCurveTo(w * 0.85, h * 0.35, w * 0.92, h * 0.82, w * 0.5, h - 3);
-    ctx.bezierCurveTo(w * 0.08, h * 0.82, w * 0.2, h * 0.38, w * 0.55, 2);
+    ctx.moveTo(w * 0.5, 2);
+    ctx.bezierCurveTo(w * 0.92, h * 0.42, w * 0.95, h * 0.84, w * 0.5, h - 3);
+    ctx.bezierCurveTo(w * 0.05, h * 0.84, w * 0.08, h * 0.42, w * 0.5, 2);
     ctx.closePath();
     ctx.fill();
   });
@@ -794,5 +886,83 @@ export function forgeAllTexturesAndAnims(scene: Phaser.Scene): void {
     g.addColorStop(1, 'rgba(255, 75, 20, 0)');
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, w, h);
+  });
+
+  // Ornate Gothic Stone Reliquary Altar Pedestal for Stage-Hidden Weapons (84x96)
+  registerSingle(scene, 'prop_weapon_altar', 84, 96, (ctx, w, h) => {
+    const cx = w * 0.5;
+    // Lower stepped plinth
+    ctx.fillStyle = '#251d2b';
+    ctx.strokeStyle = '#0c0810';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(10, h - 24, w - 20, 18, 4);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#362a3d';
+    ctx.beginPath();
+    ctx.roundRect(16, h - 38, w - 32, 16, 3);
+    ctx.fill();
+    ctx.stroke();
+
+    // Central carved column with crimson-gold runes
+    const colGrad = ctx.createLinearGradient(22, 0, w - 22, 0);
+    colGrad.addColorStop(0, '#231a29');
+    colGrad.addColorStop(0.5, '#4b3b54');
+    colGrad.addColorStop(1, '#201824');
+    ctx.fillStyle = colGrad;
+    ctx.beginPath();
+    ctx.roundRect(24, 34, w - 48, h - 68, 3);
+    ctx.fill();
+    ctx.stroke();
+
+    // Glowing rune veins along column front
+    ctx.strokeStyle = '#ffd166';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx, 40);
+    ctx.lineTo(cx, h - 42);
+    ctx.moveTo(cx - 8, 49);
+    ctx.lineTo(cx + 8, 49);
+    ctx.stroke();
+
+    // Top altar bowl / cradle trimmed in gold
+    ctx.fillStyle = '#5c4666';
+    ctx.strokeStyle = '#ffe082';
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.moveTo(14, 24);
+    ctx.lineTo(w - 14, 24);
+    ctx.lineTo(w - 22, 37);
+    ctx.lineTo(22, 37);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Golden-crimson aura core above cradle
+    const g = ctx.createRadialGradient(cx, 18, 2, cx, 18, 18);
+    g.addColorStop(0, 'rgba(255, 250, 200, 0.95)');
+    g.addColorStop(0.55, 'rgba(255, 195, 70, 0.55)');
+    g.addColorStop(1, 'rgba(255, 65, 95, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, 18, 18, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // Directional Compass Pointer pointing toward Stage-Hidden Weapon Altar
+  registerSingle(scene, 'vfx_compass_arrow', 28, 28, (ctx, w, h) => {
+    ctx.fillStyle = '#ffe066';
+    ctx.strokeStyle = '#290715';
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.moveTo(w - 3, h / 2);
+    ctx.lineTo(6, 4);
+    ctx.lineTo(11, h / 2);
+    ctx.lineTo(6, h - 4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
   });
 }

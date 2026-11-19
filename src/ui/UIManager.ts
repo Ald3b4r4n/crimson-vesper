@@ -1,12 +1,16 @@
 import { gothicAudio } from '../audio/GothicAudio';
 import { gothicSoundtrack } from '../audio/GothicSoundtrack';
 import {
+  BaseWeaponId,
+  DEFAULT_UNLOCKED_WEAPONS,
   DIFFICULTIES,
   DIFFICULTY_ORDER,
   DifficultyId,
   ENEMIES,
   getRelicIconUrl,
+  getWeaponDiscoveryStage,
   getWeaponIconUrl,
+  HERO_ORDER,
   HEROES,
   HeroId,
   LORE_CHAPTERS,
@@ -17,7 +21,13 @@ import {
   WEAPONS,
   WeaponId,
 } from '../data/loreData';
-import { ALL_BASE_WEAPONS, UpgradeChoice } from '../game/UpgradeLogic';
+import {
+  ALL_BASE_WEAPONS,
+  computeWeaponForgeBonus,
+  MAX_WEAPON_FORGE_LEVEL,
+  UpgradeChoice,
+  WEAPON_FORGE_COSTS,
+} from '../game/UpgradeLogic';
 import { ArenaCallbacks, HudSnapshot, RunSummary } from '../scenes/ArenaScene';
 import { ViewportManager } from './ViewportManager';
 
@@ -29,6 +39,8 @@ interface SavedRecords {
   totalSouls: number;
   victories: number;
   clearedStages: StageId[];
+  unlockedWeapons: BaseWeaponId[];
+  weaponForge: Partial<Record<BaseWeaponId, number>>;
 }
 
 type MenuScreen = 'splash' | 'hero_select' | 'stage_select' | 'arsenal' | 'lore';
@@ -67,7 +79,11 @@ export class UIManager {
     heroId: HeroId,
     stageId: StageId,
     difficultyId: DifficultyId,
-    callbacks: ArenaCallbacks
+    callbacks: ArenaCallbacks,
+    metaProgression?: {
+      unlockedWeapons: BaseWeaponId[];
+      weaponForge: Partial<Record<BaseWeaponId, number>>;
+    }
   ) => void;
   private onSetVirtualJoystick: (dx: number, dy: number) => void;
   private onTriggerDash: () => boolean;
@@ -83,6 +99,7 @@ export class UIManager {
   private relicRowEl: HTMLElement | null = null;
   private clockTimeEl: HTMLElement | null = null;
   private clockPhaseEl: HTMLElement | null = null;
+  private weaponCompassEl: HTMLElement | null = null;
   private killsEl: HTMLElement | null = null;
   private soulsEl: HTMLElement | null = null;
   private dashBtnEl: HTMLButtonElement | null = null;
@@ -105,7 +122,11 @@ export class UIManager {
         heroId: HeroId,
         stageId: StageId,
         difficultyId: DifficultyId,
-        callbacks: ArenaCallbacks
+        callbacks: ArenaCallbacks,
+        metaProgression?: {
+          unlockedWeapons: BaseWeaponId[];
+          weaponForge: Partial<Record<BaseWeaponId, number>>;
+        }
       ) => void;
       onSetVirtualJoystick: (dx: number, dy: number) => void;
       onTriggerDash: () => boolean;
@@ -135,18 +156,45 @@ export class UIManager {
       const raw = localStorage.getItem(RECORDS_STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<SavedRecords>;
+        const rawUnlocked = Array.isArray(parsed.unlockedWeapons)
+          ? parsed.unlockedWeapons.filter((w): w is BaseWeaponId =>
+              ALL_BASE_WEAPONS.includes(w as BaseWeaponId)
+            )
+          : [];
         return {
           bestSeconds: Number(parsed.bestSeconds) || 0,
           bestKills: Number(parsed.bestKills) || 0,
-          totalSouls: Number(parsed.totalSouls) || 0,
+          totalSouls: typeof parsed.totalSouls === 'number' ? parsed.totalSouls : 200,
           victories: Number(parsed.victories) || 0,
           clearedStages: Array.isArray(parsed.clearedStages) ? parsed.clearedStages : [],
+          unlockedWeapons:
+            rawUnlocked.length > 0
+              ? Array.from(new Set([...DEFAULT_UNLOCKED_WEAPONS, ...rawUnlocked]))
+              : [...DEFAULT_UNLOCKED_WEAPONS],
+          weaponForge:
+            parsed.weaponForge && typeof parsed.weaponForge === 'object' ? parsed.weaponForge : {},
         };
       }
     } catch {
       // ignore
     }
-    return { bestSeconds: 0, bestKills: 0, totalSouls: 0, victories: 0, clearedStages: [] };
+    return {
+      bestSeconds: 0,
+      bestKills: 0,
+      totalSouls: 200,
+      victories: 0,
+      clearedStages: [],
+      unlockedWeapons: [...DEFAULT_UNLOCKED_WEAPONS],
+      weaponForge: {},
+    };
+  }
+
+  private saveRecords(rec: SavedRecords): void {
+    try {
+      localStorage.setItem(RECORDS_STORAGE_KEY, JSON.stringify(rec));
+    } catch {
+      // ignore
+    }
   }
 
   private saveRunRecord(summary: RunSummary): void {
@@ -160,11 +208,30 @@ export class UIManager {
         rec.clearedStages.push(summary.stageId);
       }
     }
-    try {
-      localStorage.setItem(RECORDS_STORAGE_KEY, JSON.stringify(rec));
-    } catch {
-      // ignore
+    this.saveRecords(rec);
+  }
+
+  private unlockWeaponPermanently(weaponId: BaseWeaponId): void {
+    const rec = this.loadRecords();
+    if (!rec.unlockedWeapons.includes(weaponId)) {
+      rec.unlockedWeapons.push(weaponId);
+      this.saveRecords(rec);
     }
+  }
+
+  private upgradeWeaponInForge(weaponId: BaseWeaponId): boolean {
+    const rec = this.loadRecords();
+    if (!rec.unlockedWeapons.includes(weaponId)) return false;
+    const currentLv = rec.weaponForge[weaponId] ?? 0;
+    if (currentLv >= MAX_WEAPON_FORGE_LEVEL) return false;
+    const cost = WEAPON_FORGE_COSTS[currentLv];
+    if (rec.totalSouls < cost) return false;
+
+    rec.totalSouls -= cost;
+    rec.weaponForge[weaponId] = currentLv + 1;
+    this.saveRecords(rec);
+    gothicAudio.playLevelUp();
+    return true;
   }
 
   private transitionWithCurtain(swapDom: () => void): void {
@@ -316,7 +383,7 @@ export class UIManager {
     arsenalBtn.type = 'button';
     arsenalBtn.className = 'game-plaque-btn';
     arsenalBtn.dataset.testid = 'tab-powers';
-    arsenalBtn.textContent = '✦ Grade de Poderes';
+    arsenalBtn.textContent = '✦ Grade de Poderes & Forja';
     arsenalBtn.addEventListener('click', () => {
       gothicAudio.playWand(false);
       this.currentScreen = 'arsenal';
@@ -342,8 +409,9 @@ export class UIManager {
     status.className = 'splash-status-strip';
     status.innerHTML = `
       <span>👑 Regiões Purificadas: <strong>${rec.clearedStages.length}/7</strong></span>
+      <span>⚔ Armas Liberadas: <strong>${rec.unlockedWeapons.length}/9</strong></span>
       <span>☠ Recorde de Abates: <strong>${rec.bestKills}</strong></span>
-      <span>✦ Almas Colhidas: <strong>${rec.totalSouls}</strong></span>
+      <span>✦ Almas: <strong>${rec.totalSouls}</strong></span>
       <span>⏱ Melhor Tempo: <strong>${formatClock(rec.bestSeconds)}</strong></span>
     `;
     menu.appendChild(status);
@@ -416,9 +484,8 @@ export class UIManager {
 
     const roster = document.createElement('div');
     roster.className = 'roster-list';
-    const heroIds: HeroId[] = ['alaric', 'seraphina', 'kaelen', 'valeria'];
 
-    for (const hId of heroIds) {
+    for (const hId of HERO_ORDER) {
       const h = HEROES[hId];
       const w = WEAPONS[h.startingWeapon];
       const slot = document.createElement('button');
@@ -573,6 +640,8 @@ export class UIManager {
     const st = STAGES.find((x) => x.id === this.selectedStage) ?? STAGES[0];
     const boss = ENEMIES[st.finalBoss];
     const cleared = rec.clearedStages.includes(st.id);
+    const hiddenWeaponDef = WEAPONS[st.hiddenWeapon];
+    const hiddenUnlocked = rec.unlockedWeapons.includes(st.hiddenWeapon);
 
     const showcase = document.createElement('div');
     showcase.className = 'showcase-panel';
@@ -602,8 +671,16 @@ export class UIManager {
         <p style="font-family:var(--font-lore); font-size:1.02rem; line-height:1.36; color:#e2d7e0; margin:10px 0 6px">
           ${st.lore}
         </p>
-        <div style="font-size:0.75rem; color:#ffe79e; margin-bottom:8px">
+        <div style="font-size:0.75rem; color:#ffe79e; margin-bottom:4px">
           ✦ 1º Chefão (20:00) · 2º Chefão (30:00 · Vencer ou Continuar) · Supremo (40:00) · ${st.enemyPool.length} Espécies
+        </div>
+        <div style="font-size:0.74rem; color:${hiddenUnlocked ? '#7be0ad' : '#ffd166'}; margin-bottom:8px" data-testid="stage-hidden-weapon-info">
+          <img class="mini-icon-inline" src="${getWeaponIconUrl(st.hiddenWeapon)}" alt="${hiddenWeaponDef.name}" />
+          ${
+            hiddenUnlocked
+              ? `✦ Arma da Região Liberada: <strong>${hiddenWeaponDef.name}</strong>`
+              : `🧭 Escondida no Cenário: <strong>${hiddenWeaponDef.name}</strong> (${st.hiddenAltarName})`
+          }
         </div>
       </div>
 
@@ -630,6 +707,7 @@ export class UIManager {
   }
 
   private buildArsenalScreen(menu: HTMLElement): void {
+    const rec = this.loadRecords();
     const shell = document.createElement('div');
     shell.className = 'subscreen-shell';
 
@@ -645,8 +723,11 @@ export class UIManager {
     });
     const title = document.createElement('h2');
     title.className = 'subscreen-title';
-    title.textContent = 'Grade de Poderes & Matriz Ultimate (36)';
-    header.append(backBtn, title, document.createElement('div'));
+    title.textContent = 'Grade de Poderes & Forja (36)';
+    const soulsTag = document.createElement('div');
+    soulsTag.className = 'weapon-crest-badge';
+    soulsTag.innerHTML = `✦ Almas: <strong>${rec.totalSouls}</strong> · Liberadas: <strong>${rec.unlockedWeapons.length}/9</strong>`;
+    header.append(backBtn, title, soulsTag);
     shell.appendChild(header);
 
     const body = document.createElement('div');
@@ -664,6 +745,8 @@ export class UIManager {
       const evoW = WEAPONS[evoId];
       const ultId = evoW.ultimateInto!;
       const ultW = WEAPONS[ultId];
+      const isBaseUnlocked = rec.unlockedWeapons.includes(baseId);
+      const forgeLv = rec.weaponForge[baseId] ?? 0;
 
       const row = document.createElement('div');
       row.className = 'synergy-row ultimate-matrix-row';
@@ -678,18 +761,28 @@ export class UIManager {
           this.inspectedPower.kind === target.kind && this.inspectedPower.id === target.id;
         const btn = document.createElement('button');
         btn.type = 'button';
+        const isLockedBase = tier === 'base' && target.kind === 'weapon' && !isBaseUnlocked;
         const tierCls =
           tier === 'ultimate' ? 'ultimate-tile' : tier === 'evolved' ? 'evolved-tile' : '';
-        btn.className = `power-icon-tile ${tierCls} ${isSel ? 'selected' : ''}`;
-        btn.title = label;
+        btn.className = `power-icon-tile ${tierCls} ${isLockedBase ? 'locked-tile' : ''} ${isSel ? 'selected' : ''}`;
+        if (target.kind === 'weapon') {
+          btn.dataset.testid = `power-tile-${target.id}`;
+        } else {
+          btn.dataset.testid = `relic-tile-${target.id}`;
+        }
+        btn.title = isLockedBase ? `${label} (🔒 Escondida no cenário)` : label;
         btn.innerHTML = `
           <img class="power-icon-img" src="${iconUrl}" alt="${label}" />
           ${
-            tier === 'ultimate'
-              ? '<span class="evo-star-corner ultimate">👑</span>'
-              : tier === 'evolved'
-                ? '<span class="evo-star-corner">★</span>'
-                : ''
+            isLockedBase
+              ? '<span class="lock-corner">🔒</span>'
+              : tier === 'base' && target.kind === 'weapon' && forgeLv > 0
+                ? `<span class="forge-lv-corner">⚒${forgeLv}</span>`
+                : tier === 'ultimate'
+                  ? '<span class="evo-star-corner ultimate">👑</span>'
+                  : tier === 'evolved'
+                    ? '<span class="evo-star-corner">★</span>'
+                    : ''
           }
         `;
         btn.addEventListener('click', () => {
@@ -826,6 +919,69 @@ export class UIManager {
       `;
     }
 
+    // Out-of-Game Weapon Evolution Forge Panel for the selected weapon lineage
+    const lineageBaseId: BaseWeaponId =
+      this.inspectedPower.kind === 'weapon'
+        ? (() => {
+            const w = WEAPONS[this.inspectedPower.id];
+            if (w.isUltimate && w.ultimateOf) {
+              return WEAPONS[w.ultimateOf].evolvesFrom ?? 'whip';
+            }
+            if (w.isEvolved && w.evolvesFrom) return w.evolvesFrom;
+            return w.id as BaseWeaponId;
+          })()
+        : RELICS[this.inspectedPower.id].synergyWeapon;
+
+    const baseWDef = WEAPONS[lineageBaseId];
+    const isUnlocked = rec.unlockedWeapons.includes(lineageBaseId);
+    const forgeLv = rec.weaponForge[lineageBaseId] ?? 0;
+    const fb = computeWeaponForgeBonus(forgeLv);
+    const discStage = getWeaponDiscoveryStage(lineageBaseId);
+    const nextCost = forgeLv < MAX_WEAPON_FORGE_LEVEL ? WEAPON_FORGE_COSTS[forgeLv] : 0;
+    const canForge = isUnlocked && forgeLv < MAX_WEAPON_FORGE_LEVEL && rec.totalSouls >= nextCost;
+
+    const forgeEl = document.createElement('div');
+    forgeEl.className = 'weapon-forge-panel';
+    forgeEl.dataset.testid = 'weapon-forge-panel';
+    forgeEl.innerHTML = `
+      <div class="forge-header-row">
+        <span class="forge-title">⚒ Forja & Evolução Fora de Jogo · ${baseWDef.name}</span>
+        <span class="forge-souls-tag">Almas: <strong data-testid="forge-souls-balance">${rec.totalSouls}</strong> ✦</span>
+      </div>
+      <div class="forge-status-line" data-testid="forge-lock-status">
+        ${
+          isUnlocked
+            ? `<span style="color:#7be0ad">✦ Linhagem Desbloqueada & Disponível nas Fases</span>`
+            : `<span style="color:#ffb3c1">🔒 Oculta na Fase ${discStage?.roman ?? '?'}: ${discStage?.name ?? ''} (${discStage?.hiddenAltarName ?? ''})</span>`
+        }
+      </div>
+      <div class="forge-bonus-grid">
+        <span>Grau: <strong data-testid="forge-level-val">${forgeLv} / ${MAX_WEAPON_FORGE_LEVEL}</strong></span>
+        <span>Dano: <strong>+${Math.round((fb.damageMult - 1) * 100)}%</strong></span>
+        <span>Área: <strong>+${Math.round((fb.areaMult - 1) * 100)}%</strong></span>
+        <span>Recarga: <strong>-${Math.round((1 - fb.cooldownMult) * 100)}%</strong></span>
+        <span>Projéteis: <strong>+${fb.bonusAmount}</strong></span>
+        <span>Inicial: <strong>Nv.${fb.startingLevel}</strong>${fb.earlyEvoDiscount > 0 ? ' · <strong style="color:#ffd166">Evolui -1 Nv!</strong>' : ''}</span>
+      </div>
+      <button type="button" class="btn-gothic forge-upgrade-btn" data-testid="forge-upgrade-btn" ${canForge ? '' : 'disabled'}>
+        ${
+          !isUnlocked
+            ? `🔒 Encontre na Fase ${discStage?.roman ?? '?'}`
+            : forgeLv >= MAX_WEAPON_FORGE_LEVEL
+              ? '👑 Forja Suprema Máxima (5/5)'
+              : rec.totalSouls >= nextCost
+                ? `⚒ Evoluir na Forja (${nextCost} ✦)`
+                : `Precisa ${nextCost} Almas ✦`
+        }
+      </button>
+    `;
+    forgeEl.querySelector('[data-testid="forge-upgrade-btn"]')?.addEventListener('click', () => {
+      if (this.upgradeWeaponInForge(lineageBaseId)) {
+        this.renderMenu();
+      }
+    });
+    inspector.appendChild(forgeEl);
+
     body.append(matrix, inspector);
     shell.appendChild(body);
     menu.appendChild(shell);
@@ -905,18 +1061,29 @@ export class UIManager {
   }
 
   private beginArenaRun(): void {
+    const rec = this.loadRecords();
     this.transitionWithCurtain(() => {
       this.mountHudDom();
-      this.onStartRun(this.selectedHero, this.selectedStage, this.selectedDifficulty, {
-        onHudUpdate: (snap) => this.updateHud(snap),
-        onLevelUpChoices: (choices, onPick) => this.showLevelUpModal(choices, onPick),
-        onRelicChestOpen: (reward, onClose) => this.showRelicChestModal(reward, onClose),
-        onBannerAnnouncement: (title, sub) => this.showBanner(title, sub),
-        onPauseChanged: (paused) => this.handlePauseModal(paused),
-        onStage30MinBossCleared: (summary, onContinue, onFinish) =>
-          this.showStage30MinClearedModal(summary, onContinue, onFinish),
-        onRunEnded: (summary) => this.showRunSummaryModal(summary),
-      });
+      this.onStartRun(
+        this.selectedHero,
+        this.selectedStage,
+        this.selectedDifficulty,
+        {
+          onHudUpdate: (snap) => this.updateHud(snap),
+          onLevelUpChoices: (choices, onPick) => this.showLevelUpModal(choices, onPick),
+          onRelicChestOpen: (reward, onClose) => this.showRelicChestModal(reward, onClose),
+          onBannerAnnouncement: (title, sub) => this.showBanner(title, sub),
+          onPauseChanged: (paused) => this.handlePauseModal(paused),
+          onStage30MinBossCleared: (summary, onContinue, onFinish) =>
+            this.showStage30MinClearedModal(summary, onContinue, onFinish),
+          onWeaponDiscovered: (wId) => this.unlockWeaponPermanently(wId),
+          onRunEnded: (summary) => this.showRunSummaryModal(summary),
+        },
+        {
+          unlockedWeapons: rec.unlockedWeapons,
+          weaponForge: rec.weaponForge,
+        }
+      );
     });
   }
 
@@ -941,6 +1108,7 @@ export class UIManager {
         <div class="clock-panel">
           <div class="clock-time" data-clock-time>00:00</div>
           <div class="clock-phase" data-clock-phase>Fase I · Ato I</div>
+          <div class="hud-weapon-compass" data-testid="hud-weapon-compass" style="display:none"></div>
         </div>
 
         <div class="stats-right">
@@ -984,6 +1152,7 @@ export class UIManager {
     this.relicRowEl = hud.querySelector('[data-relic-slots]');
     this.clockTimeEl = hud.querySelector('[data-clock-time]');
     this.clockPhaseEl = hud.querySelector('[data-clock-phase]');
+    this.weaponCompassEl = hud.querySelector('[data-testid="hud-weapon-compass"]');
     this.killsEl = hud.querySelector('[data-kills]');
     this.soulsEl = hud.querySelector('[data-souls]');
     this.dashBtnEl = hud.querySelector('[data-dash-btn]');
@@ -1135,6 +1304,18 @@ export class UIManager {
     }
     if (this.clockPhaseEl) {
       this.clockPhaseEl.textContent = `Fase ${snap.stageRoman} · ${snap.actName} · ${snap.difficultyLabel}`;
+    }
+    if (this.weaponCompassEl) {
+      if (snap.hiddenWeapon) {
+        const hw = snap.hiddenWeapon;
+        this.weaponCompassEl.style.display = 'inline-flex';
+        this.weaponCompassEl.className = `hud-weapon-compass ${hw.claimedInRun ? 'claimed' : ''}`;
+        this.weaponCompassEl.innerHTML = hw.claimedInRun
+          ? `✦ <strong>${hw.weaponName}</strong> Liberada!`
+          : `<span class="compass-arrow" style="transform: rotate(${hw.angleDeg}deg)">➤</span><span>${hw.alreadyUnlocked ? '✦' : '🔒'} ${hw.weaponName} · <strong>${hw.distanceMeters}m</strong></span>`;
+      } else {
+        this.weaponCompassEl.style.display = 'none';
+      }
     }
     if (this.killsEl) this.killsEl.textContent = `${snap.kills}`;
     if (this.soulsEl) this.soulsEl.textContent = `${snap.souls}`;

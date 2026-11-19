@@ -14,7 +14,7 @@ test('verifies 4 difficulties, 36 Ultimate Power Grid icons, dense forest & fire
   await expect(page.getByTestId('fullscreen-btn')).toBeVisible();
   await page.screenshot({ path: 'test-results/preview-splash-menu.png' });
 
-  // 2. Redesigned Power Grid & Ultimate Matrix (36 custom .webp icons: Base + Relic -> Evolved -> Ultimate)
+  // 2. Redesigned Power Grid, Out-of-Game Forge & Ultimate Matrix (36 custom .webp icons: Base + Relic -> Evolved -> Ultimate)
   await page.getByTestId('tab-powers').click();
   await expect(page.locator('.synergy-row')).toHaveCount(9);
   await expect(page.locator('.synergy-matrix .power-icon-img')).toHaveCount(36);
@@ -25,14 +25,34 @@ test('verifies 4 difficulties, 36 Ultimate Power Grid icons, dense forest & fire
       imgs.filter((img) => (img as HTMLImageElement).complete && (img as HTMLImageElement).naturalWidth > 0).length
     );
   expect(loadedCount).toBe(36);
+
+  // Out-of-Game Forge check: upgrade unlocked Whip (60 souls from initial 200), verify locked Bible requires Stage I discovery
+  await expect(page.getByTestId('weapon-forge-panel')).toBeVisible();
+  await expect(page.getByTestId('forge-souls-balance')).toHaveText('200');
+  await page.getByTestId('forge-upgrade-btn').click();
+  await expect(page.getByTestId('forge-souls-balance')).toHaveText('140');
+  await expect(page.getByTestId('forge-level-val')).toHaveText('1 / 5');
+
+  await page.getByTestId('power-tile-bible').click();
+  await expect(page.getByTestId('forge-upgrade-btn')).toBeDisabled();
+  await expect(page.getByTestId('forge-upgrade-btn')).toContainText('Fase I');
   await page.screenshot({ path: 'test-results/preview-power-grid.png' });
 
-  // Return to Splash, then enter Hero Select -> verify Difficulty Selector -> Stage Select -> Start 40-Min Run
+  // Return to Splash, then enter Hero Select -> verify all 8 Heroes (incl. Mordred, LinK, Antonio Cruz, Luisa Cruz) & Difficulty Selector
   await page.getByRole('button', { name: '← Menu' }).click();
   await page.getByTestId('menu-play-btn').click();
 
   await expect(page.getByTestId('hero-card-alaric')).toBeVisible();
-  await page.getByTestId('hero-card-alaric').click();
+  await expect(page.getByTestId('hero-card-mordred')).toBeVisible();
+  await expect(page.getByTestId('hero-card-link')).toBeVisible();
+  await expect(page.getByTestId('hero-card-antonio')).toBeVisible();
+  await expect(page.getByTestId('hero-card-luisa')).toBeVisible();
+
+  await page.getByTestId('hero-card-luisa').click();
+  await expect(page.locator('.showcase-panel')).toContainText('Filha de Antonio Cruz');
+  await expect(page.locator('.showcase-panel')).toContainText('encaracolados');
+  await page.getByTestId('hero-card-antonio').click();
+  await expect(page.locator('.showcase-panel')).toContainText('Antonio Cruz');
   await expect(page.getByTestId('difficulty-normal')).toBeVisible();
   await expect(page.getByTestId('difficulty-hard')).toBeVisible();
   await expect(page.getByTestId('difficulty-epic')).toBeVisible();
@@ -43,17 +63,20 @@ test('verifies 4 difficulties, 36 Ultimate Power Grid icons, dense forest & fire
   await page.getByTestId('go-stage-select-btn').click();
   await expect(page.getByTestId('stage-card-forest')).toBeVisible();
   await page.getByTestId('stage-card-forest').click();
+  await expect(page.getByTestId('stage-hidden-weapon-info')).toContainText('Bíblia das Cinzas');
   await expect(page.locator('.showcase-footer')).toContainText('40:00');
   await expect(page.locator('.showcase-footer')).toContainText('HOLI SHIT!');
   await page.screenshot({ path: 'test-results/preview-stage-select.png' });
 
   await page.getByTestId('start-run-btn').click();
 
-  // 3. Arena HUD, 40:00 Match Clock, Difficulty Badge, Dense Forest + Fire Physics & Pause Modal
+  // 3. Arena HUD, 40:00 Match Clock, Hidden Weapon Compass, Difficulty Badge, Dense Forest + Fire Physics & Pause Modal
   await expect(page.getByTestId('arena-hud')).toBeVisible({ timeout: 5000 });
   await expect(page.locator('#phaser-container canvas')).toBeVisible();
   await expect(page.locator('[data-clock-time]')).toContainText('/ 40:00');
   await expect(page.locator('[data-clock-phase]')).toContainText('HOLI SHIT!');
+  await expect(page.getByTestId('hud-weapon-compass')).toBeVisible();
+  await expect(page.getByTestId('hud-weapon-compass')).toContainText('Bíblia das Cinzas');
 
   await page.waitForTimeout(700);
   const hudIconLoaded = await page
