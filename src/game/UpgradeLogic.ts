@@ -115,11 +115,11 @@ export interface UpgradeChoice {
 }
 
 export function xpRequiredForLevel(level: number): number {
-  if (level <= 1) return 18;
-  if (level <= 10) return Math.round(18 + (level - 1) * 22 + Math.pow(level - 1, 1.75) * 6);
-  if (level <= 25) return Math.round(490 + (level - 10) * 58 + Math.pow(level - 10, 1.82) * 9);
-  if (level <= 50) return Math.round(2600 + (level - 25) * 125 + Math.pow(level - 25, 1.85) * 12);
-  return Math.round(10350 + (level - 50) * 240);
+  if (level <= 1) return 12;
+  if (level <= 10) return Math.round(12 + (level - 1) * 14 + Math.pow(level - 1, 1.55) * 3);
+  if (level <= 25) return Math.round(230 + (level - 10) * 34 + Math.pow(level - 10, 1.65) * 4.5);
+  if (level <= 50) return Math.round(1130 + (level - 25) * 72 + Math.pow(level - 25, 1.7) * 6);
+  return Math.round(4350 + (level - 50) * 140);
 }
 
 export function createInitialInventory(
@@ -183,6 +183,8 @@ export function computeEffectiveStats(inv: InventoryState): HeroStats {
   const kaelenBonusAmount = inv.heroId === 'kaelen' && inv.level >= 5 ? 1 : 0;
   const ascMight = inv.ascensionMight ?? 0;
   const ascHp = inv.ascensionHp ?? 0;
+  // Natural HP regeneration scales smoothly with hero level progression + vitality relics
+  const levelRegen = Math.max(0, inv.level - 1) * 0.12;
 
   return {
     maxHp: Math.round(base.maxHp * (1 + heartLv * 0.2) + ascHp),
@@ -192,7 +194,7 @@ export function computeEffectiveStats(inv: InventoryState): HeroStats {
     cooldown: Math.max(0.35, base.cooldown * Math.pow(0.92, tomeLv)),
     magnet: base.magnet * (1 + bloodLv * 0.2 + cloverLv * 0.15),
     armor: base.armor + bloodLv,
-    regen: base.regen + bloodLv * 0.8,
+    regen: base.regen + levelRegen + heartLv * 0.25 + bloodLv * 0.8,
     amount: base.amount + ringLv + kaelenBonusAmount,
     projSpeed: base.projSpeed + gauntletLv * 0.15,
     critChance: Math.min(0.88, base.critChance + gauntletLv * 0.06 + cloverLv * 0.08),
@@ -641,18 +643,18 @@ export function computePlayerPowerPressure(inv: InventoryState): number {
   }
   return (
     1 +
-    Math.max(0, inv.level - 2) * 0.12 +
-    Math.max(0, totalWeaponLevels - 1) * 0.14 +
-    totalRelicLevels * 0.1 +
-    evolvedCount * 0.95 +
-    ultimateCount * 2.1 +
-    (inv.ascensionMight ?? 0) * 1.8
+    Math.max(0, inv.level - 3) * 0.055 +
+    Math.max(0, totalWeaponLevels - 2) * 0.055 +
+    totalRelicLevels * 0.04 +
+    evolvedCount * 0.42 +
+    ultimateCount * 0.95 +
+    (inv.ascensionMight ?? 0) * 1.25
   );
 }
 
 /**
  * Computes continuous intra-match horde size, spawn cadence, enemy toughness, damage, speed,
- * and knockback resistance across all 4 acts — escalating steeply even in Normal mode.
+ * and knockback resistance across all 4 acts — balanced for Normal and fierce in Hard/Epic/HOLI SHIT!.
  */
 export function computeIntraMatchEscalation(
   elapsedSeconds: number,
@@ -673,19 +675,19 @@ export function computeIntraMatchEscalation(
           ? 'Ato III · Noite Profunda'
           : 'Ato IV · Apocalipse Carmesim';
 
-  const timeHp = 1 + mins * 0.58 + Math.pow(mins, d.timeRampExponent) * 0.22;
+  const timeHp = 1 + mins * 0.34 + Math.pow(mins, d.timeRampExponent) * 0.11;
   const hpMult = timeHp * powerPressure * d.hpMult;
-  const dmgMult = (1 + mins * 0.15 + Math.pow(mins / 5, 1.45) * 0.58) * d.dmgMult;
-  const spdMult = Math.min(2.8, (1 + mins * 0.025) * d.spdMult);
-  const xpMult = (0.62 + mins * 0.012) * d.xpMult;
-  const knockbackBonus = Math.min(0.55, mins * 0.016);
+  const dmgMult = (1 + mins * 0.095 + Math.pow(mins / 7, 1.35) * 0.38) * d.dmgMult;
+  const spdMult = Math.min(2.6, (1 + mins * 0.017) * d.spdMult);
+  const xpMult = (0.85 + mins * 0.025) * d.xpMult;
+  const knockbackBonus = Math.min(0.45, mins * 0.013);
   const maxHorde = Math.min(
-    680,
-    Math.round((96 + mins * 22 + Math.pow(mins, 1.36) * 3.0) * d.hordeMult)
+    640,
+    Math.round((80 + mins * 16 + Math.pow(mins, 1.32) * 2.2) * d.hordeMult)
   );
   const spawnsPerSecond =
-    (5.2 + mins * 1.35 + Math.pow(mins / 4, 1.48) * 1.75) * d.spawnRateMult;
-  const packSize = 1 + Math.floor(mins / 3);
+    (4.2 + mins * 0.95 + Math.pow(mins / 5, 1.42) * 1.25) * d.spawnRateMult;
+  const packSize = 1 + Math.floor(mins / 4);
 
   return {
     act,

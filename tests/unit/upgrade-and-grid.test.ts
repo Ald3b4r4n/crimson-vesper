@@ -158,6 +158,12 @@ describe('Vespera — Difficulties, Ultimates, 27 Enemies, 40-Min Stages & 36 Ic
     expect(buffed.area).toBeGreaterThan(base.area);
     expect(buffed.might).toBeGreaterThan(base.might + 0.35);
     expect(buffed.maxHp).toBeGreaterThan(base.maxHp);
+
+    // HP regen scales organically with hero level progression + Black Heart vitality
+    inv.level = 12;
+    inv.relics.black_heart = 2;
+    const progressed = computeEffectiveStats(inv);
+    expect(progressed.regen).toBeGreaterThan(base.regen + 1.5);
   });
 
   it('queries nearby and nearest entities accurately in SpatialGrid', () => {

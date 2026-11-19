@@ -363,6 +363,7 @@ export class ArenaScene extends Phaser.Scene {
   private weaponTimers: Record<string, number> = {};
   private hudSyncTimer = 0;
   private pendingLevelUps = 0;
+  private lifeStealBudget = 4;
 
   // Controls & Flags
   private modalPaused = false;
@@ -1048,6 +1049,8 @@ export class ArenaScene extends Phaser.Scene {
     if (this.hp > 0 && this.hp < this.stats.maxHp) {
       this.hp = Math.min(this.stats.maxHp, this.hp + this.stats.regen * dt);
     }
+    const maxLifeStealPerSec = Math.max(3.5, this.stats.maxHp * 0.032);
+    this.lifeStealBudget = Math.min(maxLifeStealPerSec, this.lifeStealBudget + maxLifeStealPerSec * dt);
 
     this.hudSyncTimer += dt;
     if (this.hudSyncTimer >= 0.1) {
@@ -1845,19 +1848,19 @@ export class ArenaScene extends Phaser.Scene {
 
     const baseRoleHpMult: Record<BossRole, number> = {
       none: 1,
-      sub_boss: def.isBoss ? 1.85 : 11.0,
-      act_10_boss: 3.2,
-      major_20_boss: 5.8,
-      major_30_boss: 8.2,
-      final_40_boss: 11.5,
+      sub_boss: def.isBoss ? 1.35 : 8.5,
+      act_10_boss: 2.4,
+      major_20_boss: 4.6,
+      major_30_boss: 6.4,
+      final_40_boss: 9.0,
     };
 
-    const eliteMult = isElite ? 3.4 : 1.0;
+    const eliteMult = isElite ? 3.2 : 1.0;
     const scaledHp = Math.round(
       def.hp *
         this.stageDef.difficultyMult *
         (isBossUnit
-          ? baseRoleHpMult[bossRole] * Math.max(1.4, esc.hpMult * 0.95)
+          ? baseRoleHpMult[bossRole] * Math.max(1.25, esc.hpMult * 0.62)
           : esc.hpMult * eliteMult)
     );
     const visualScale = isBossUnit
@@ -2110,7 +2113,7 @@ export class ArenaScene extends Phaser.Scene {
               dir * 225,
               0,
               isCrit,
-              tier === 2 ? 2.4 : tier === 1 ? 1.6 : 0
+              tier === 2 ? 1.9 : tier === 1 ? 1.1 + lv * 0.2 : 0.35 + lv * 0.12
             );
           }
         }
@@ -3152,8 +3155,10 @@ export class ArenaScene extends Phaser.Scene {
     gothicAudio.playHit();
     this.spawnFloatingDamage(enemy.x, enemy.y - 16 * enemy.def.scale, dmg, isCrit);
 
-    if (lifeSteal > 0 && this.hp < this.stats.maxHp) {
-      this.hp = Math.min(this.stats.maxHp, this.hp + lifeSteal);
+    if (lifeSteal > 0 && this.hp < this.stats.maxHp && this.lifeStealBudget > 0.05) {
+      const drained = Math.min(lifeSteal, this.lifeStealBudget);
+      this.lifeStealBudget -= drained;
+      this.hp = Math.min(this.stats.maxHp, this.hp + drained);
     }
 
     if (enemy.hp <= 0) {
@@ -3182,9 +3187,9 @@ export class ArenaScene extends Phaser.Scene {
     const esc = this.getActEscalation();
     const baseXp =
       enemy.bossRole === 'sub_boss'
-        ? Math.min(28, enemy.def.xpValue)
+        ? Math.min(48, enemy.def.xpValue)
         : isBossUnit
-          ? Math.min(95, enemy.def.xpValue)
+          ? Math.min(110, enemy.def.xpValue)
           : enemy.def.xpValue;
     const eliteXpMult = enemy.isElite ? 2.2 : 1.0;
     const xpReward = Math.max(1, Math.round(baseXp * esc.xpMult * eliteXpMult));
