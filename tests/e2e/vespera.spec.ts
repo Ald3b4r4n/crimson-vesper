@@ -379,3 +379,98 @@ test('verifies Gold economy end-to-end: buying Exclusive Weapon, Gold Forging, a
   await expect(page.getByTestId('hero-upg-lv-vitality')).toHaveText('Nv.1/5');
   await expect(page.getByTestId('hero-stat-hp')).toHaveText('158 PV');
 });
+
+test('verifies smooth performance & zero errors under heavy late-game HOLI SHIT! horde with 6 active weapons', async ({
+  page,
+}) => {
+  const pageErrors: string[] = [];
+  page.on('pageerror', (err) => pageErrors.push(err.message));
+
+  await page.setViewportSize({ width: 1366, height: 840 });
+  await page.goto('/');
+
+  // Seed a 24:00 late-game HOLI SHIT! checkpoint with 6 heavy weapons (Ultimates + Exclusives)
+  await page.getByTestId('open-save-modal-btn').click();
+  await page.getByTestId('save-json-textarea').fill(
+    JSON.stringify({
+      bestSeconds: 1440,
+      bestKills: 1500,
+      totalSouls: 500,
+      totalGold: 10000,
+      victories: 2,
+      clearedStages: ['forest', 'castle'],
+      unlockedWeapons: ['whip', 'wand', 'bible', 'axe', 'thurible', 'lightning', 'daggers', 'flask', 'cross'],
+      purchasedExclusiveWeapons: ['crimson_katana', 'frost_lance', 'abyssal_meteor', 'void_singularity', 'seraphic_beam', 'eclipse_dragon'],
+      heroUpgrades: { antonio: { vitality: 3, might: 3, agility: 3, fortitude: 3 } },
+      weaponForge: { crimson_katana: 3, eclipse_dragon: 3 },
+      activeRun: {
+        savedAt: new Date().toISOString(),
+        heroId: 'antonio',
+        stageId: 'inferno',
+        difficultyId: 'holi_shit',
+        elapsedSeconds: 1440,
+        hp: 260,
+        kills: 1500,
+        hiddenAltarClaimed: true,
+        spawnedMilestones: ['act_10_boss', 'major_20_boss'],
+        subBossWaveIndex: 8,
+        inventory: {
+          heroId: 'antonio',
+          level: 36,
+          xp: 10,
+          xpToNext: 1800,
+          souls: 300,
+          gold: 1200,
+          weapons: {
+            gehenna_inferno: 1,
+            crimson_eclipse_aura: 1,
+            seraphim_choir: 1,
+            abyssal_meteor: 5,
+            void_singularity: 5,
+            eclipse_dragon: 5,
+          },
+          relics: {
+            black_heart: 5,
+            empty_tome: 5,
+            amber_seal: 5,
+            crimson_candelabra: 5,
+            mercury_blood: 5,
+            duplicator_ring: 3,
+          },
+        },
+      },
+    })
+  );
+  await page.getByTestId('import-save-btn').click();
+  await page.locator('[data-close-save-modal]').click();
+
+  await expect(page.getByTestId('continue-saved-run-btn')).toBeVisible();
+  await page.getByTestId('continue-saved-run-btn').click();
+  await expect(page.getByTestId('arena-hud')).toBeVisible({ timeout: 5000 });
+
+  // Measure frame pacing while weaving through heavy late-game HOLI SHIT! inferno horde + 6 heavy weapons!
+  await page.keyboard.down('KeyD');
+  const perfMetrics = await page.evaluate(async () => {
+    const deltas: number[] = [];
+    let last = performance.now();
+    await new Promise<void>((resolve) => {
+      const start = last;
+      const step = (now: number) => {
+        deltas.push(now - last);
+        last = now;
+        if (now - start >= 2400) resolve();
+        else requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    });
+    const avgMs = deltas.reduce((a, b) => a + b, 0) / Math.max(1, deltas.length);
+    const fps = 1000 / Math.max(1, avgMs);
+    return { frames: deltas.length, avgMs: Math.round(avgMs * 10) / 10, fps: Math.round(fps) };
+  });
+  await page.screenshot({ path: 'test-results/preview-stress-horde.png' });
+  await page.keyboard.up('KeyD');
+
+  expect(pageErrors).toEqual([]);
+  expect(perfMetrics.frames).toBeGreaterThanOrEqual(45);
+  expect(perfMetrics.fps).toBeGreaterThanOrEqual(20);
+});

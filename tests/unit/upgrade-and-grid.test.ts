@@ -190,6 +190,15 @@ describe('Vespera — Difficulties, Ultimates, 27 Enemies, 40-Min Stages & 36 Ic
     expect(near.map((e) => e.id).sort()).toEqual([1, 2]);
     expect(grid.findNearest(0, 0, 200)?.id).toBe(1);
 
+    // Reusable zero-allocation scratch buffer & dirty-bucket clear verification
+    const scratch: Array<{ id: number; x: number; y: number; radius: number; active: boolean }> = [];
+    const sameRef = grid.queryRadius(0, 0, 60, scratch);
+    expect(sameRef).toBe(scratch);
+    expect(scratch.map((e) => e.id).sort()).toEqual([1, 2]);
+    grid.clear();
+    expect(grid.queryRadius(0, 0, 60, scratch)).toHaveLength(0);
+    expect(grid.findNearest(0, 0, 200)).toBeNull();
+
     const choices = buildUpgradeChoices(createInitialInventory('seraphina'), 3, () => 0.5);
     expect(choices).toHaveLength(3);
   });

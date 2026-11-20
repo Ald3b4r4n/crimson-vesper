@@ -547,6 +547,8 @@ export class GothicAudio {
     const ctx = this.ensureContext();
     if (!ctx) return;
     const now = ctx.currentTime;
+    const duck = this.acquireSlot('boss_horn', now, 0.75);
+    if (duck <= 0) return;
     const bus = this.getOutputBus(ctx);
 
     [110, 164.81].forEach((freq) => {
@@ -561,7 +563,7 @@ export class GothicAudio {
       filter.frequency.setValueAtTime(340, now);
 
       gain.gain.setValueAtTime(0.001, now);
-      gain.gain.linearRampToValueAtTime(0.095, now + 0.18);
+      gain.gain.linearRampToValueAtTime(0.095 * duck, now + 0.18);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.9);
 
       osc.connect(filter);
@@ -630,6 +632,8 @@ export class GothicAudio {
     const ctx = this.ensureContext();
     if (!ctx) return;
     const now = ctx.currentTime;
+    const duck = this.acquireSlot(isMagnet ? 'pickup_magnet' : 'pickup', now, isMagnet ? 0.25 : 0.085);
+    if (duck <= 0) return;
     const bus = this.getOutputBus(ctx);
     const freqs = isMagnet ? [349.23, 440, 587.33, 698.46] : [392.0, 493.88, 587.33];
 
@@ -640,7 +644,7 @@ export class GothicAudio {
       const t = now + idx * 0.055;
       osc.frequency.setValueAtTime(f, t);
       gain.gain.setValueAtTime(0.001, t);
-      gain.gain.linearRampToValueAtTime(0.068, t + 0.012);
+      gain.gain.linearRampToValueAtTime(0.068 * duck, t + 0.012);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
       osc.connect(gain);
       gain.connect(bus);

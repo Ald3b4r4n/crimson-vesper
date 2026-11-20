@@ -139,6 +139,21 @@ export class UIManager {
   private bannerTimeout: number | null = null;
   private keyPickHandler: ((ev: KeyboardEvent) => void) | null = null;
 
+  // Dirty-check HUD caches (avoid rebuilding 12 <img> DOM nodes & triggering layout 10x/sec during combat!)
+  private hudLastXpPct = -1;
+  private hudLastLevel = -1;
+  private hudLastClock = '';
+  private hudLastPhase = '';
+  private hudLastCompassSig = '';
+  private hudLastKills = -1;
+  private hudLastSouls = -1;
+  private hudLastGold = -1;
+  private hudLastDashPct = -1;
+  private hudLastDashLabel = '';
+  private hudLastWeaponsSig = '';
+  private hudLastRelicsSig = '';
+  private hudLastBossSig = '';
+
   constructor(
     root: HTMLElement,
     viewport: ViewportManager,
@@ -1564,6 +1579,19 @@ export class UIManager {
 
   private mountHudDom(): void {
     this.lastRenderedScreen = null;
+    this.hudLastXpPct = -1;
+    this.hudLastLevel = -1;
+    this.hudLastClock = '';
+    this.hudLastPhase = '';
+    this.hudLastCompassSig = '';
+    this.hudLastKills = -1;
+    this.hudLastSouls = -1;
+    this.hudLastGold = -1;
+    this.hudLastDashPct = -1;
+    this.hudLastDashLabel = '';
+    this.hudLastWeaponsSig = '';
+    this.hudLastRelicsSig = '';
+    this.hudLastBossSig = '';
     const hud = document.createElement('div');
     hud.className = 'hud-root';
     hud.dataset.testid = 'arena-hud';
@@ -1774,112 +1802,167 @@ export class UIManager {
     if (!this.hudRoot) return;
 
     const xpPct = Math.min(100, Math.round((snap.xp / Math.max(1, snap.xpToNext)) * 100));
-    if (this.xpFillEl) this.xpFillEl.style.width = `${xpPct}%`;
-    if (this.xpLevelEl) this.xpLevelEl.textContent = `NV ${snap.level}`;
-    if (this.clockTimeEl) {
-      this.clockTimeEl.textContent = `${formatClock(snap.elapsedSeconds)} / 40:00`;
+    if (this.xpFillEl && xpPct !== this.hudLastXpPct) {
+      this.hudLastXpPct = xpPct;
+      this.xpFillEl.style.width = `${xpPct}%`;
     }
-    if (this.clockPhaseEl) {
-      this.clockPhaseEl.textContent = `Fase ${snap.stageRoman} · ${snap.actName} · ${snap.difficultyLabel}`;
+    if (this.xpLevelEl && snap.level !== this.hudLastLevel) {
+      this.hudLastLevel = snap.level;
+      this.xpLevelEl.textContent = `NV ${snap.level}`;
+    }
+    const clockText = `${formatClock(snap.elapsedSeconds)} / 40:00`;
+    if (this.clockTimeEl && clockText !== this.hudLastClock) {
+      this.hudLastClock = clockText;
+      this.clockTimeEl.textContent = clockText;
+    }
+    const phaseText = `Fase ${snap.stageRoman} · ${snap.actName} · ${snap.difficultyLabel}`;
+    if (this.clockPhaseEl && phaseText !== this.hudLastPhase) {
+      this.hudLastPhase = phaseText;
+      this.clockPhaseEl.textContent = phaseText;
     }
     if (this.weaponCompassEl) {
       if (snap.hiddenWeapon) {
         const hw = snap.hiddenWeapon;
-        this.weaponCompassEl.style.display = 'inline-flex';
-        this.weaponCompassEl.className = `hud-weapon-compass ${hw.claimedInRun ? 'claimed' : ''}`;
-        this.weaponCompassEl.innerHTML = hw.claimedInRun
-          ? `✦ <strong>${hw.weaponName}</strong> Liberada!`
-          : `<span class="compass-arrow" style="transform: rotate(${hw.angleDeg}deg)">➤</span><span>${hw.alreadyUnlocked ? '✦' : '🔒'} ${hw.weaponName} · <strong>${hw.distanceMeters}m</strong></span>`;
-      } else {
+        const compassSig = hw.claimedInRun
+          ? `claimed:${hw.weaponName}`
+          : `${hw.weaponName}:${hw.distanceMeters}:${Math.round(hw.angleDeg / 6) * 6}:${hw.alreadyUnlocked ? 1 : 0}`;
+        if (compassSig !== this.hudLastCompassSig) {
+          this.hudLastCompassSig = compassSig;
+          this.weaponCompassEl.style.display = 'inline-flex';
+          this.weaponCompassEl.className = `hud-weapon-compass ${hw.claimedInRun ? 'claimed' : ''}`;
+          this.weaponCompassEl.innerHTML = hw.claimedInRun
+            ? `✦ <strong>${hw.weaponName}</strong> Liberada!`
+            : `<span class="compass-arrow" style="transform: rotate(${hw.angleDeg}deg)">➤</span><span>${hw.alreadyUnlocked ? '✦' : '🔒'} ${hw.weaponName} · <strong>${hw.distanceMeters}m</strong></span>`;
+        }
+      } else if (this.hudLastCompassSig !== 'none') {
+        this.hudLastCompassSig = 'none';
         this.weaponCompassEl.style.display = 'none';
       }
     }
-    if (this.killsEl) this.killsEl.textContent = `${snap.kills}`;
-    if (this.soulsEl) this.soulsEl.textContent = `${snap.souls}`;
-    if (this.goldEl) this.goldEl.textContent = `${(snap.gold ?? 0).toLocaleString('pt-BR')}`;
+    if (this.killsEl && snap.kills !== this.hudLastKills) {
+      this.hudLastKills = snap.kills;
+      this.killsEl.textContent = `${snap.kills}`;
+    }
+    if (this.soulsEl && snap.souls !== this.hudLastSouls) {
+      this.hudLastSouls = snap.souls;
+      this.soulsEl.textContent = `${snap.souls}`;
+    }
+    const goldVal = snap.gold ?? 0;
+    if (this.goldEl && goldVal !== this.hudLastGold) {
+      this.hudLastGold = goldVal;
+      this.goldEl.textContent = `${goldVal.toLocaleString('pt-BR')}`;
+    }
 
     if (this.dashBtnEl) {
       const pct = Math.round(snap.dashReadyRatio * 100);
-      this.dashBtnEl.style.setProperty('--dash-pct', `${pct}%`);
-      if (snap.dashReadyRatio >= 0.999) {
-        this.dashBtnEl.classList.add('ready');
-        if (this.dashLabelEl) this.dashLabelEl.innerHTML = 'PASSO<br/>ESPECTRAL';
-      } else {
-        this.dashBtnEl.classList.remove('ready');
-        if (this.dashLabelEl) {
-          this.dashLabelEl.innerHTML = `${snap.dashCooldownRemaining.toFixed(1)}s`;
+      if (pct !== this.hudLastDashPct) {
+        this.hudLastDashPct = pct;
+        this.dashBtnEl.style.setProperty('--dash-pct', `${pct}%`);
+      }
+      const nextDashLabel =
+        snap.dashReadyRatio >= 0.999 ? 'PASSO<br/>ESPECTRAL' : `${snap.dashCooldownRemaining.toFixed(1)}s`;
+      if (nextDashLabel !== this.hudLastDashLabel) {
+        this.hudLastDashLabel = nextDashLabel;
+        if (snap.dashReadyRatio >= 0.999) {
+          this.dashBtnEl.classList.add('ready');
+        } else {
+          this.dashBtnEl.classList.remove('ready');
         }
+        if (this.dashLabelEl) this.dashLabelEl.innerHTML = nextDashLabel;
       }
     }
 
-    // Redesigned Illustrated HUD Power Rack (6 Weapons + 6 Relics)
+    // Redesigned Illustrated HUD Power Rack (6 Weapons + 6 Relics) — ONLY rebuild DOM when inventory changes!
     if (this.weaponRowEl) {
       const entries = Object.entries(snap.inventory.weapons) as Array<[WeaponId, number]>;
-      let html = '';
-      for (let i = 0; i < 6; i++) {
-        const entry = entries[i];
-        if (entry) {
-          const [wId, lv] = entry;
-          const def = WEAPONS[wId];
-          const baseCat = def.evolvesFrom ? WEAPONS[def.evolvesFrom].catalystRelic : def.catalystRelic;
-          const readyEvo =
-            !def.isUltimate &&
-            lv >= def.maxLevel &&
-            Boolean(baseCat && (snap.inventory.relics[baseCat] ?? 0) >= (def.isEvolved ? 2 : 1));
-          const stateCls = def.isUltimate
-            ? 'ultimate'
-            : def.isEvolved
-              ? readyEvo
-                ? 'evolved ready-evolve'
-                : 'evolved'
-              : readyEvo
-                ? 'ready-evolve'
-                : '';
-          html += `
-            <div class="item-slot ${stateCls}" title="${def.name}">
-              <img class="slot-icon-img" src="${getWeaponIconUrl(wId)}" alt="${def.name}" />
-              ${
-                def.isUltimate
-                  ? '<span class="slot-evo-badge ultimate">👑</span>'
-                  : `${def.isEvolved ? '<span class="slot-evo-badge">★</span>' : ''}${renderLevelPips(lv, def.maxLevel)}`
-              }
-            </div>
-          `;
-        } else {
-          html += `<div class="item-slot empty"></div>`;
-        }
+      let sig = '';
+      for (let i = 0; i < entries.length; i++) {
+        const [wId, lv] = entries[i];
+        const def = WEAPONS[wId];
+        const baseCat = def.evolvesFrom ? WEAPONS[def.evolvesFrom].catalystRelic : def.catalystRelic;
+        const catLv = baseCat ? (snap.inventory.relics[baseCat] ?? 0) : 0;
+        sig += `${wId}:${lv}:${catLv}|`;
       }
-      this.weaponRowEl.innerHTML = html;
+      if (sig !== this.hudLastWeaponsSig) {
+        this.hudLastWeaponsSig = sig;
+        let html = '';
+        for (let i = 0; i < 6; i++) {
+          const entry = entries[i];
+          if (entry) {
+            const [wId, lv] = entry;
+            const def = WEAPONS[wId];
+            const baseCat = def.evolvesFrom ? WEAPONS[def.evolvesFrom].catalystRelic : def.catalystRelic;
+            const readyEvo =
+              !def.isUltimate &&
+              lv >= def.maxLevel &&
+              Boolean(baseCat && (snap.inventory.relics[baseCat] ?? 0) >= (def.isEvolved ? 2 : 1));
+            const stateCls = def.isUltimate
+              ? 'ultimate'
+              : def.isEvolved
+                ? readyEvo
+                  ? 'evolved ready-evolve'
+                  : 'evolved'
+                : readyEvo
+                  ? 'ready-evolve'
+                  : '';
+            html += `
+              <div class="item-slot ${stateCls}" title="${def.name}">
+                <img class="slot-icon-img" src="${getWeaponIconUrl(wId)}" alt="${def.name}" />
+                ${
+                  def.isUltimate
+                    ? '<span class="slot-evo-badge ultimate">👑</span>'
+                    : `${def.isEvolved ? '<span class="slot-evo-badge">★</span>' : ''}${renderLevelPips(lv, def.maxLevel)}`
+                }
+              </div>
+            `;
+          } else {
+            html += `<div class="item-slot empty"></div>`;
+          }
+        }
+        this.weaponRowEl.innerHTML = html;
+      }
     }
 
     if (this.relicRowEl) {
       const entries = Object.entries(snap.inventory.relics) as Array<[RelicId, number]>;
-      let html = '';
-      for (let i = 0; i < 6; i++) {
-        const entry = entries[i];
-        if (entry) {
-          const [rId, lv] = entry;
-          const def = RELICS[rId];
-          html += `
-            <div class="item-slot" title="${def.name}">
-              <img class="slot-icon-img" src="${getRelicIconUrl(rId)}" alt="${def.name}" />
-              ${renderLevelPips(lv, def.maxLevel)}
-            </div>
-          `;
-        } else {
-          html += `<div class="item-slot empty"></div>`;
-        }
+      let sig = '';
+      for (let i = 0; i < entries.length; i++) {
+        sig += `${entries[i][0]}:${entries[i][1]}|`;
       }
-      this.relicRowEl.innerHTML = html;
+      if (sig !== this.hudLastRelicsSig) {
+        this.hudLastRelicsSig = sig;
+        let html = '';
+        for (let i = 0; i < 6; i++) {
+          const entry = entries[i];
+          if (entry) {
+            const [rId, lv] = entry;
+            const def = RELICS[rId];
+            html += `
+              <div class="item-slot" title="${def.name}">
+                <img class="slot-icon-img" src="${getRelicIconUrl(rId)}" alt="${def.name}" />
+                ${renderLevelPips(lv, def.maxLevel)}
+              </div>
+            `;
+          } else {
+            html += `<div class="item-slot empty"></div>`;
+          }
+        }
+        this.relicRowEl.innerHTML = html;
+      }
     }
 
     if (this.bossWrapEl && this.bossNameEl && this.bossFillEl) {
       if (snap.boss) {
-        this.bossWrapEl.style.display = 'block';
-        this.bossNameEl.textContent = `✦ ${snap.boss.name} ✦`;
-        const pct = Math.max(0, Math.min(100, (snap.boss.hp / snap.boss.maxHp) * 100));
-        this.bossFillEl.style.width = `${pct}%`;
-      } else {
+        const pct = Math.max(0, Math.min(100, Math.round((snap.boss.hp / snap.boss.maxHp) * 1000) / 10));
+        const bSig = `${snap.boss.name}:${pct}`;
+        if (bSig !== this.hudLastBossSig) {
+          this.hudLastBossSig = bSig;
+          this.bossWrapEl.style.display = 'block';
+          this.bossNameEl.textContent = `✦ ${snap.boss.name} ✦`;
+          this.bossFillEl.style.width = `${pct}%`;
+        }
+      } else if (this.hudLastBossSig !== 'none') {
+        this.hudLastBossSig = 'none';
         this.bossWrapEl.style.display = 'none';
       }
     }

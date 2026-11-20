@@ -33,6 +33,7 @@ const game = new Phaser.Game({
   render: {
     antialias: true,
     powerPreference: 'high-performance',
+    batchSize: 4096,
   },
   scene: [],
 });

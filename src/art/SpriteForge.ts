@@ -1408,4 +1408,42 @@ export function forgeAllTexturesAndAnims(scene: Phaser.Scene): void {
     ctx.arc(cx, cy, 22, 0, Math.PI * 2);
     ctx.fill();
   });
+
+  // Single-texture Gothic BitmapFont for zero-allocation, single-draw-call floating damage numbers!
+  const dmgChars = '0123456789+!';
+  const cellW = 16;
+  const cellH = 24;
+  registerSingle(scene, 'vfx_dmg_font_tex', cellW * dmgChars.length, cellH, (ctx) => {
+    ctx.font = 'bold 17px Cinzel, Georgia, serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    for (let i = 0; i < dmgChars.length; i++) {
+      const ch = dmgChars[i];
+      const cx = i * cellW + cellW * 0.5;
+      const cy = cellH * 0.52;
+      ctx.strokeStyle = '#120610';
+      ctx.lineWidth = 4;
+      ctx.strokeText(ch, cx, cy);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(ch, cx, cy);
+    }
+  });
+  if (!scene.cache.bitmapFont.exists('vfx_dmg_font')) {
+    scene.cache.bitmapFont.add(
+      'vfx_dmg_font',
+      Phaser.GameObjects.RetroFont.Parse(scene, {
+        image: 'vfx_dmg_font_tex',
+        'offset.x': 0,
+        'offset.y': 0,
+        width: cellW,
+        height: cellH,
+        chars: dmgChars,
+        charsPerRow: dmgChars.length,
+        'spacing.x': 0,
+        'spacing.y': 0,
+        lineSpacing: 0,
+      })
+    );
+  }
 }

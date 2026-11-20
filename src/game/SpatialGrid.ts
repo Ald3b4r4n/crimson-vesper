@@ -8,14 +8,23 @@ export interface SpatialEntity {
 export class SpatialGrid<T extends SpatialEntity> {
   private readonly cellSize: number;
   private readonly cells = new Map<number, T[]>();
+  private readonly dirtyBuckets: T[][] = [];
+  private readonly nearestScratch: T[] = [];
 
   constructor(cellSize = 96) {
     this.cellSize = cellSize;
   }
 
   clear(): void {
-    for (const bucket of this.cells.values()) {
-      bucket.length = 0;
+    // Only reset buckets that actually received entities this frame (O(occupied cells) instead of O(entire map history))
+    for (let i = 0; i < this.dirtyBuckets.length; i++) {
+      this.dirtyBuckets[i].length = 0;
+    }
+    this.dirtyBuckets.length = 0;
+
+    // Periodically prune far-away empty buckets during long 40-minute runs
+    if (this.cells.size > 2048) {
+      this.cells.clear();
     }
   }
 
@@ -34,6 +43,9 @@ export class SpatialGrid<T extends SpatialEntity> {
       bucket = [];
       this.cells.set(key, bucket);
     }
+    if (bucket.length === 0) {
+      this.dirtyBuckets.push(bucket);
+    }
     bucket.push(entity);
   }
 
@@ -47,7 +59,7 @@ export class SpatialGrid<T extends SpatialEntity> {
     for (let cy = minCy; cy <= maxCy; cy++) {
       for (let cx = minCx; cx <= maxCx; cx++) {
         const bucket = this.cells.get(this.hash(cx, cy));
-        if (!bucket) continue;
+        if (!bucket || bucket.length === 0) continue;
         for (let i = 0; i < bucket.length; i++) {
           const item = bucket[i];
           if (!item.active) continue;
@@ -64,7 +76,7 @@ export class SpatialGrid<T extends SpatialEntity> {
   }
 
   findNearest(x: number, y: number, maxRange: number): T | null {
-    const candidates = this.queryRadius(x, y, maxRange);
+    const candidates = this.queryRadius(x, y, maxRange, this.nearestScratch);
     let best: T | null = null;
     let bestDistSq = maxRange * maxRange;
     for (let i = 0; i < candidates.length; i++) {
